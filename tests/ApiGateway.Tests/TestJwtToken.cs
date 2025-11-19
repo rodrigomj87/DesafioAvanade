@@ -63,6 +63,9 @@ internal static class TestJwtToken
         yield return new KeyValuePair<string, string?>("Jwt:Issuer", Issuer);
         yield return new KeyValuePair<string, string?>("Jwt:Audience", Audience);
         yield return new KeyValuePair<string, string?>("Jwt:JwksMode", "Inline");
+        yield return new KeyValuePair<string, string?>("RateLimiting:PermitLimit", "2");
+        yield return new KeyValuePair<string, string?>("RateLimiting:WindowSeconds", "60");
+        yield return new KeyValuePair<string, string?>("RateLimiting:QueueLimit", "0");
         yield return new KeyValuePair<string, string?>("Jwt:Jwks:keys:0:kty", "RSA");
         yield return new KeyValuePair<string, string?>("Jwt:Jwks:keys:0:use", "sig");
         yield return new KeyValuePair<string, string?>("Jwt:Jwks:keys:0:alg", SecurityAlgorithms.RsaSha256);
