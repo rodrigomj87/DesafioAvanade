@@ -1,0 +1,51 @@
+name: dotnet-ci
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  DOTNET_NOLOGO: true
+
+jobs:
+  build_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore DesafioAvanade.sln
+
+      - name: Build
+        run: dotnet build DesafioAvanade.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test DesafioAvanade.sln --configuration Release --no-build --verbosity normal
+
+  lint:
+    runs-on: ubuntu-latest
+    needs: build_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install dotnet-format
+        run: dotnet tool install --global dotnet-format
+
+      - name: Verify formatting
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet format DesafioAvanade.sln --verify-no-changes

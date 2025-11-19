@@ -1,0 +1,79 @@
+# Build outputs
+bin/
+obj/
+**/bin/
+**/obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# VS Code workspace settings (keep shared settings by committing specific files explicitly)
+.vscode/
+
+# NuGet / tooling
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Logs / temp
+*.log
+*.tlog
+*.psess
+*.vsp
+*.vspx
+TestResult*/
+.trx
+.coverage
+.coveragexml
+
+# Generated documentation & reports
+*.md.html
+Reports/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Secrets / env
+*.env
+.env.*
+secrets.json
+appsettings.Local.json
+
+# Docker / runtime
+**/docker-compose.override.yml
+**/docker-compose.*.yml
+*.pid
+
+# Tool caches
+.npm/
+.python-version
+pip-log.txt
+
+# Resharper / analyzers
+_ReSharper*/
+*.[Rr]e[Ss]harper
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# Local data
+*.db
+*.sqlite
+*.sqlite3
+Docs/
+.github/instructions/
+
+# Azure
+*.azure
+.azure/
