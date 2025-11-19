@@ -103,6 +103,14 @@ Remove-Job -Id $GatewayJob.Id,$InventoryJob.Id,$AuthJob.Id
 
 O bloco final mostra os logs antes de remover os jobs para liberar os binários.
 
+## Observabilidade, Health & Rate Limiting
+- Endpoints públicos: `GET /health` e `GET /healthz` continuam anônimos e respondem `200`, úteis para probes Kubernetes/Azure (`/healthz` é exposto diretamente pelo `UseGatewayPipeline()` em `Program.cs`).
+- O middleware de correlação garante que toda requisição receba/propague `X-Correlation-ID`, presente nos logs e encaminhado aos serviços behind o gateway.
+- Toda a configuração do gateway foi encapsulada em extensions (`ConfigureGatewayLogging`, `AddGatewayObservability`, `AddGatewaySecurity`, `UseGatewayPipeline`), mantendo o `Program.cs` enxuto seguindo KISS e garantindo que Serilog JSON, OpenTelemetry (AspNetCore/HttpClient/Runtime) e rate limiting estejam sempre habilitados em conjunto.
+- Logs utilizam Serilog em JSON estruturado (`UseSerilog` + `UseSerilogRequestLogging`), facilitando coleta em ferramentas centralizadas.
+- OpenTelemetry já está habilitado com exporters de console para traces e métricas (AspNetCore + HttpClient + Runtime). Para desativar/alterar exporters use variáveis `OTEL_*` ou edite as extensions mencionadas acima.
+- Rate limiting: por padrão são permitidas 30 requisições a cada 10 segundos por cliente (IP). Configure via `appsettings*` na seção `RateLimiting` ou via env vars (`RateLimiting__PermitLimit`, `RateLimiting__WindowSeconds`, `RateLimiting__QueueLimit`). Apenas as rotas proxy (`/inventory`, `/sales`) estão sujeitas ao limitador.
+
 ## Workflows
 - `dotnet-ci.yml`: restaura, compila, executa testes e valida formatação (`dotnet format --verify-no-changes`) conforme ADR-005.
 - `gateway-ci.yml`: build/test do `src/ApiGateway/ApiGateway.csproj` sempre que houver mudanças no gateway ou documentação relacionada.
