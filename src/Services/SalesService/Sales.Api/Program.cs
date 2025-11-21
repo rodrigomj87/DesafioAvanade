@@ -36,4 +36,6 @@ app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "Sales.Api" }))
     .WithName("HealthCheck");
 
+app.MapOrdersEndpoints();
+
 app.Run();

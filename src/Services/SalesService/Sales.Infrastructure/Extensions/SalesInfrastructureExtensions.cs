@@ -1,10 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Sales.Application.Services;
+using Sales.Application.Contracts;
+using Sales.Application.Validators;
 using Sales.Domain.Repositories;
 using Sales.Infrastructure.Persistence;
 using Sales.Infrastructure.Repositories;
 using Sales.Infrastructure.Services;
+using FluentValidation;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -21,6 +24,9 @@ public static class SalesInfrastructureExtensions
             options.UseSqlServer(connectionString));
 
         services.AddScoped<IOrderRepository, OrderRepository>();
+        services.AddScoped<IOrderService, OrderService>();
+
+        services.AddValidatorsFromAssemblyContaining<CreateOrderDtoValidator>();
 
         var inventoryServiceUrl = configuration["Services:Inventory"]
             ?? throw new InvalidOperationException("Configuration 'Services:Inventory' not found");
