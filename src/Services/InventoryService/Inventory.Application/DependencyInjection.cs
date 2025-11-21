@@ -7,6 +7,7 @@ public static class InventoryApplicationServiceCollectionExtensions
     public static IServiceCollection AddInventoryApplication(this IServiceCollection services)
     {
         services.AddScoped<ProductService>();
+        services.AddScoped<StockMovementService>();
         return services;
     }
 }
