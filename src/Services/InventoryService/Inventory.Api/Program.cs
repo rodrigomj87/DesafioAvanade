@@ -1,10 +1,13 @@
 using FluentValidation;
+using Inventory.Api.Extensions;
 using Inventory.Api.Middleware;
 using Inventory.Application.Contracts;
 using Inventory.Application.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.ConfigureInventoryLogging();
+builder.Services.AddInventoryObservability(builder.Configuration);
 builder.Services.AddInventoryApplication();
 builder.Services.AddInventoryInfrastructure(builder.Configuration);
 builder.Services.AddEndpointsApiExplorer();
@@ -20,6 +23,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseInventoryRequestLogging();
 app.UseExceptionHandler();
 
 app.MapGet("/api/v1/inventory/health", () => Results.Ok(new { status = "UP" }))
