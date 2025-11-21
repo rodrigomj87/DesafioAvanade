@@ -1,0 +1,68 @@
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using Serilog;
+using Serilog.Formatting.Json;
+
+namespace Sales.Api.Extensions;
+
+internal static class ObservabilityExtensions
+{
+    public static WebApplicationBuilder ConfigureSalesLogging(this WebApplicationBuilder builder)
+    {
+        builder.Host.UseSerilog((context, services, loggerConfiguration) =>
+        {
+            loggerConfiguration
+                .ReadFrom.Configuration(context.Configuration)
+                .ReadFrom.Services(services)
+                .Enrich.FromLogContext()
+                .Enrich.WithProperty("Application", "SalesService")
+                .Enrich.WithProperty("Environment", builder.Environment.EnvironmentName)
+                .WriteTo.Console(formatter: new JsonFormatter());
+        });
+
+        return builder;
+    }
+
+    public static IServiceCollection AddSalesObservability(this IServiceCollection services, IConfiguration configuration)
+    {
+        var serviceName = configuration.GetValue<string>("ServiceName") ?? "SalesService";
+        var serviceVersion = configuration.GetValue<string>("ServiceVersion") ?? "1.0.0";
+
+        services.AddOpenTelemetry()
+            .ConfigureResource(resource => resource
+                .AddService(serviceName: serviceName, serviceVersion: serviceVersion))
+            .WithTracing(tracing => tracing
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddConsoleExporter())
+            .WithMetrics(metrics => metrics
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddRuntimeInstrumentation()
+                .AddConsoleExporter());
+
+        return services;
+    }
+
+    public static WebApplication UseSalesRequestLogging(this WebApplication app)
+    {
+        app.UseSerilogRequestLogging(options =>
+        {
+            options.MessageTemplate = "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms";
+            options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+            {
+                diagnosticContext.Set("RequestHost", httpContext.Request.Host.Value ?? string.Empty);
+                diagnosticContext.Set("RequestScheme", httpContext.Request.Scheme ?? string.Empty);
+                diagnosticContext.Set("UserAgent", httpContext.Request.Headers.UserAgent.ToString() ?? string.Empty);
+
+                if (httpContext.Request.Headers.TryGetValue("X-Correlation-ID", out var correlationId))
+                {
+                    diagnosticContext.Set("CorrelationId", correlationId.ToString() ?? string.Empty);
+                }
+            };
+        });
+
+        return app;
+    }
+}
