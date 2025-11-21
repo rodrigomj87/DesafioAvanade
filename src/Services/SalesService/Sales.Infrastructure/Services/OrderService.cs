@@ -1,9 +1,11 @@
 using Sales.Application.Contracts;
+using Sales.Application.Events;
 using Sales.Application.Services;
 using Sales.Domain.Entities;
 using Sales.Domain.Repositories;
 using Sales.Domain.ValueObjects;
 using Sales.Domain.Enums;
+using Sales.Infrastructure.Messaging;
 using Microsoft.Extensions.Logging;
 using FluentValidation;
 
@@ -14,17 +16,20 @@ public class OrderService : IOrderService
     private readonly IOrderRepository _orderRepository;
     private readonly IStockChecker _stockChecker;
     private readonly IValidator<CreateOrderDto> _validator;
+    private readonly IRabbitMqPublisher _publisher;
     private readonly ILogger<OrderService> _logger;
 
     public OrderService(
         IOrderRepository orderRepository,
         IStockChecker stockChecker,
         IValidator<CreateOrderDto> validator,
+        IRabbitMqPublisher publisher,
         ILogger<OrderService> logger)
     {
         _orderRepository = orderRepository;
         _stockChecker = stockChecker;
         _validator = validator;
+        _publisher = publisher;
         _logger = logger;
     }
 
@@ -78,6 +83,36 @@ public class OrderService : IOrderService
 
         _logger.LogInformation("Order {OrderId} created for customer {CustomerId} with {ItemCount} items",
             order.Id, dto.CustomerId, orderItems.Count);
+
+        var orderConfirmedEvent = new OrderConfirmedEvent
+        {
+            OrderId = order.Id,
+            CustomerId = order.CustomerId,
+            Items = order.Items.Select(item => new OrderItemEvent
+            {
+                ProductId = item.ProductId,
+                Quantity = item.Quantity,
+                UnitPrice = item.UnitPrice
+            }).ToList(),
+            TotalAmount = order.TotalAmount,
+            CreatedAt = order.CreatedAt
+        };
+
+        var headers = new Dictionary<string, object>
+        {
+            { "x-source-service", "sales-service" },
+            { "x-correlation-id", Guid.NewGuid().ToString() }
+        };
+
+        try
+        {
+            await _publisher.PublishAsync(orderConfirmedEvent, "order.confirmed", headers, cancellationToken);
+            _logger.LogInformation("Order confirmed event published for Order {OrderId}", order.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to publish order confirmed event for Order {OrderId}", order.Id);
+        }
 
         return MapToOrderResponse(order);
     }
