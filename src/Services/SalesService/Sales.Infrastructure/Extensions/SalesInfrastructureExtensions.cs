@@ -7,6 +7,7 @@ using Sales.Domain.Repositories;
 using Sales.Infrastructure.Persistence;
 using Sales.Infrastructure.Repositories;
 using Sales.Infrastructure.Services;
+using Sales.Infrastructure.Messaging;
 using FluentValidation;
 
 namespace Microsoft.Extensions.DependencyInjection;
@@ -36,6 +37,16 @@ public static class SalesInfrastructureExtensions
             client.BaseAddress = new Uri(inventoryServiceUrl);
             client.Timeout = TimeSpan.FromSeconds(2);
         });
+
+        return services;
+    }
+
+    public static IServiceCollection AddRabbitMqPublisher(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.Configure<RabbitMqSettings>(configuration.GetSection(RabbitMqSettings.SectionName));
+        services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
 
         return services;
     }
