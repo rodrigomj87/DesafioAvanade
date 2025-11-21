@@ -1,6 +1,7 @@
 using Inventory.Application.Contracts;
 using Inventory.Domain.Entities;
 using Inventory.Domain.Enums;
+using Inventory.Domain.Exceptions;
 using Inventory.Domain.Repositories;
 
 namespace Inventory.Application.Services;
@@ -18,6 +19,12 @@ public sealed class ProductService
 
     public async Task<ProductDto> CreateAsync(CreateProductDto request, CancellationToken cancellationToken)
     {
+        var existing = await _repository.GetBySkuAsync(request.Sku, cancellationToken);
+        if (existing is not null)
+        {
+            throw new DuplicateSkuException(request.Sku);
+        }
+
         var product = new Product(Guid.NewGuid(), request.Sku, request.Name, request.Description, request.Price, request.QuantityAvailable);
         var stored = await _repository.AddAsync(product, cancellationToken);
 
@@ -35,6 +42,20 @@ public sealed class ProductService
         }
 
         return ProductDto.FromEntity(stored);
+    }
+
+    public async Task<PagedResult<ProductDto>> GetPagedAsync(ProductQueryParameters parameters, CancellationToken cancellationToken)
+    {
+        var (items, totalCount) = await _repository.GetPagedAsync(
+            parameters.Page,
+            parameters.PageSize,
+            parameters.Sku,
+            parameters.Name,
+            (int?)parameters.Status,
+            cancellationToken);
+
+        var dtos = items.Select(ProductDto.FromEntity).ToArray();
+        return new PagedResult<ProductDto>(dtos, parameters.Page, parameters.PageSize, totalCount);
     }
 
     public async Task<IReadOnlyCollection<ProductDto>> ListAsync(CancellationToken cancellationToken)
