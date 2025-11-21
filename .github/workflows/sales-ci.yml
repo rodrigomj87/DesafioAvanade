@@ -1,0 +1,57 @@
+name: sales-ci
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "src/Services/SalesService/**"
+      - ".github/workflows/sales-ci.yml"
+      - "Docs/**"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "src/Services/SalesService/**"
+      - ".github/workflows/sales-ci.yml"
+      - "Docs/**"
+
+env:
+  DOTNET_NOLOGO: true
+
+jobs:
+  build_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore Sales.Domain
+        run: dotnet restore src/Services/SalesService/Sales.Domain/Sales.Domain.csproj
+
+      - name: Restore Sales.Application
+        run: dotnet restore src/Services/SalesService/Sales.Application/Sales.Application.csproj
+
+      - name: Restore Sales.Infrastructure
+        run: dotnet restore src/Services/SalesService/Sales.Infrastructure/Sales.Infrastructure.csproj
+
+      - name: Restore Sales.Api
+        run: dotnet restore src/Services/SalesService/Sales.Api/Sales.Api.csproj
+
+      - name: Build Sales.Domain
+        run: dotnet build src/Services/SalesService/Sales.Domain/Sales.Domain.csproj --configuration Release --no-restore
+
+      - name: Build Sales.Application
+        run: dotnet build src/Services/SalesService/Sales.Application/Sales.Application.csproj --configuration Release --no-restore
+
+      - name: Build Sales.Infrastructure
+        run: dotnet build src/Services/SalesService/Sales.Infrastructure/Sales.Infrastructure.csproj --configuration Release --no-restore
+
+      - name: Build Sales.Api
+        run: dotnet build src/Services/SalesService/Sales.Api/Sales.Api.csproj --configuration Release --no-restore
+
+      - name: Test Sales
+        run: dotnet test src/Services/SalesService/Sales.Api/Sales.Api.csproj --configuration Release --no-build --verbosity normal
