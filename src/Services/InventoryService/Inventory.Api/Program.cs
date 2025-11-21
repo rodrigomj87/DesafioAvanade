@@ -4,7 +4,7 @@ using Inventory.Application.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddInventoryApplication();
-builder.Services.AddInventoryInfrastructure();
+builder.Services.AddInventoryInfrastructure(builder.Configuration);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

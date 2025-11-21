@@ -28,7 +28,11 @@ Docs/                        -> Documento base, ADRs, backlog, specs
   ```powershell
   docker compose -f infra/dev/docker-compose.yml up -d
   ```
-2. Execute serviços conforme necessário (cada um em terminal próprio):
+2. Crie/atualize o banco Inventory (contexto `InventoryDbContext`):
+  ```powershell
+  dotnet ef database update --project src/Services/InventoryService/Inventory.Infrastructure/Inventory.Infrastructure.csproj --startup-project src/Services/InventoryService/Inventory.Api/Inventory.Api.csproj
+  ```
+3. Execute serviços conforme necessário (cada um em terminal próprio):
   ```powershell
   dotnet run --project src/AuthService/Auth.Api/Auth.Api.csproj
   dotnet run --project src/Services/InventoryService/Inventory.Api/Inventory.Api.csproj
@@ -36,7 +40,7 @@ Docs/                        -> Documento base, ADRs, backlog, specs
   dotnet run --project src/ApiGateway/ApiGateway.csproj --urls http://localhost:5000
   ```
   O gateway consome as URLs internas definidas em `appsettings.Development.json` (`Services:Inventory`, `Services:Sales`). Ajuste-as se mudar as portas dos microserviços.
-3. Health-checks: `http://localhost:5000/health` (gateway), `/api/v1/inventory/health`, `/api/v1/sales/health`, `/health` (Auth). Swagger disponível em `/swagger` nos serviços.
+4. Health-checks: `http://localhost:5000/health` (gateway), `/api/v1/inventory/health`, `/api/v1/sales/health`, `/health` (Auth). Swagger disponível em `/swagger` nos serviços.
 
   ## JWT / JWKS
   - O stub de autenticação agora expõe `/.well-known/jwks.json` e assina tokens RS256 via `POST /api/v1/auth/token`.
