@@ -1,6 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Sales.Application.Services;
+using Sales.Domain.Repositories;
 using Sales.Infrastructure.Persistence;
+using Sales.Infrastructure.Repositories;
+using Sales.Infrastructure.Services;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -15,6 +19,17 @@ public static class SalesInfrastructureExtensions
 
         services.AddDbContext<SalesDbContext>(options =>
             options.UseSqlServer(connectionString));
+
+        services.AddScoped<IOrderRepository, OrderRepository>();
+
+        var inventoryServiceUrl = configuration["Services:Inventory"]
+            ?? throw new InvalidOperationException("Configuration 'Services:Inventory' not found");
+
+        services.AddHttpClient<IStockChecker, StockCheckerService>(client =>
+        {
+            client.BaseAddress = new Uri(inventoryServiceUrl);
+            client.Timeout = TimeSpan.FromSeconds(2);
+        });
 
         return services;
     }
