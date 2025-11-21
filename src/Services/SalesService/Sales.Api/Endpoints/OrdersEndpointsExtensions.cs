@@ -15,57 +15,33 @@ public static class OrdersEndpointsExtensions
         group.MapPost("/", CreateOrderAsync)
             .WithName("CreateOrder")
             .WithSummary("Create a new order")
-            .RequireAuthorization();
+            .RequireAuthorization("sales.write");
 
         group.MapGet("/", GetOrdersAsync)
             .WithName("GetOrders")
             .WithSummary("Get all orders with pagination and filters")
-            .RequireAuthorization();
+            .RequireAuthorization("sales.read");
 
         group.MapGet("/{id:guid}", GetOrderByIdAsync)
             .WithName("GetOrderById")
             .WithSummary("Get order by ID")
-            .RequireAuthorization();
+            .RequireAuthorization("sales.read");
 
         group.MapPatch("/{id:guid}/status", UpdateOrderStatusAsync)
             .WithName("UpdateOrderStatus")
             .WithSummary("Update order status")
-            .RequireAuthorization();
+            .RequireAuthorization("sales.write");
 
         return group;
     }
 
-    private static async Task<Results<Created<OrderResponse>, BadRequest<ProblemDetails>, Conflict<ProblemDetails>>> CreateOrderAsync(
+    private static async Task<Created<OrderResponse>> CreateOrderAsync(
         CreateOrderDto dto,
         IOrderService orderService,
-        ILogger<Program> logger,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var response = await orderService.CreateOrderAsync(dto, cancellationToken);
-            return TypedResults.Created($"/api/v1/orders/{response.Id}", response);
-        }
-        catch (FluentValidation.ValidationException ex)
-        {
-            logger.LogWarning("Validation failed: {Errors}", string.Join(", ", ex.Errors.Select(e => e.ErrorMessage)));
-            return TypedResults.BadRequest(new ProblemDetails
-            {
-                Title = "Validation Error",
-                Detail = string.Join("; ", ex.Errors.Select(e => e.ErrorMessage)),
-                Status = StatusCodes.Status400BadRequest
-            });
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("Insufficient stock"))
-        {
-            logger.LogWarning("Stock unavailable: {Message}", ex.Message);
-            return TypedResults.Conflict(new ProblemDetails
-            {
-                Title = "Stock Unavailable",
-                Detail = ex.Message,
-                Status = StatusCodes.Status409Conflict
-            });
-        }
+        var response = await orderService.CreateOrderAsync(dto, cancellationToken);
+        return TypedResults.Created($"/api/v1/orders/{response.Id}", response);
     }
 
     private static async Task<Ok<PagedResult<OrderResponse>>> GetOrdersAsync(
@@ -82,7 +58,7 @@ public static class OrdersEndpointsExtensions
         return TypedResults.Ok(response);
     }
 
-    private static async Task<Results<Ok<OrderResponse>, NotFound<ProblemDetails>>> GetOrderByIdAsync(
+    private static async Task<Results<Ok<OrderResponse>, NotFound>> GetOrderByIdAsync(
         Guid id,
         IOrderService orderService,
         CancellationToken cancellationToken)
@@ -91,59 +67,20 @@ public static class OrdersEndpointsExtensions
         
         if (response == null)
         {
-            return TypedResults.NotFound(new ProblemDetails
-            {
-                Title = "Order Not Found",
-                Detail = $"Order with ID {id} was not found",
-                Status = StatusCodes.Status404NotFound
-            });
+            return TypedResults.NotFound();
         }
 
         return TypedResults.Ok(response);
     }
 
-    private static async Task<Results<Ok<OrderResponse>, NotFound<ProblemDetails>, BadRequest<ProblemDetails>>> UpdateOrderStatusAsync(
+    private static async Task<Ok<OrderResponse>> UpdateOrderStatusAsync(
         Guid id,
         UpdateOrderStatusDto dto,
         IOrderService orderService,
-        ILogger<Program> logger,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var response = await orderService.UpdateOrderStatusAsync(id, dto.NewStatus, cancellationToken);
-            return TypedResults.Ok(response);
-        }
-        catch (KeyNotFoundException ex)
-        {
-            logger.LogWarning("Order not found: {Message}", ex.Message);
-            return TypedResults.NotFound(new ProblemDetails
-            {
-                Title = "Order Not Found",
-                Detail = ex.Message,
-                Status = StatusCodes.Status404NotFound
-            });
-        }
-        catch (ArgumentException ex)
-        {
-            logger.LogWarning("Invalid status: {Message}", ex.Message);
-            return TypedResults.BadRequest(new ProblemDetails
-            {
-                Title = "Invalid Status",
-                Detail = ex.Message,
-                Status = StatusCodes.Status400BadRequest
-            });
-        }
-        catch (InvalidOperationException ex)
-        {
-            logger.LogWarning("Invalid transition: {Message}", ex.Message);
-            return TypedResults.BadRequest(new ProblemDetails
-            {
-                Title = "Invalid Transition",
-                Detail = ex.Message,
-                Status = StatusCodes.Status400BadRequest
-            });
-        }
+        var response = await orderService.UpdateOrderStatusAsync(id, dto.NewStatus, cancellationToken);
+        return TypedResults.Ok(response);
     }
 }
 
