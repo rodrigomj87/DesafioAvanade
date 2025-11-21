@@ -71,7 +71,6 @@ _ReSharper*/
 *.db
 *.sqlite
 *.sqlite3
-Docs/
 .github/instructions/
 
 # Azure
