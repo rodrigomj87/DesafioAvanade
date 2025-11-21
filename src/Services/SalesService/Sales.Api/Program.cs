@@ -1,5 +1,15 @@
+using Sales.Api.Extensions;
+using Sales.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
+builder.ConfigureSalesLogging();
+builder.Services.AddSalesObservability(builder.Configuration);
+builder.Services.AddSalesInfrastructure(builder.Configuration);
+await builder.Services.AddSalesJwtAuthenticationAsync(builder.Configuration);
+
+builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -7,20 +17,23 @@ var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
+    app.MapOpenApi();
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-var orders = new List<object>();
-
-app.MapGet("/api/v1/sales/health", () => Results.Ok(new { status = "UP" }));
-
-app.MapGet("/api/v1/sales/orders", () => Results.Ok(orders));
-
-app.MapPost("/api/v1/sales/orders", (object order) =>
+using (var scope = app.Services.CreateScope())
 {
-    orders.Add(order);
-    return Results.Accepted(value: order);
-});
+    var dbContext = scope.ServiceProvider.GetRequiredService<SalesDbContext>();
+    dbContext.Database.Migrate();
+}
+
+app.UseSalesRequestLogging();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "Sales.Api" }))
+    .WithName("HealthCheck");
 
 app.Run();

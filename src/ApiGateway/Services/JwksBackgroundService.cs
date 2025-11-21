@@ -31,6 +31,38 @@ internal sealed class JwksBackgroundService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var mode = _configuration["Jwt:JwksMode"];
+        if (string.Equals(mode, "Inline", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation("Modo JWKS: Inline. Carregando JWKS da configuração.");
+            var inlineSection = _configuration.GetSection("Jwt:Jwks");
+            if (!inlineSection.Exists())
+            {
+                _logger.LogError("Jwt:JwksMode=Inline, mas Jwt:Jwks não está configurado.");
+                throw new InvalidOperationException("Jwt:Jwks is required when JwksMode is Inline.");
+            }
+
+            var jwks = new JsonWebKeySet();
+            var keys = inlineSection.GetSection("keys").GetChildren();
+            foreach (var keySection in keys)
+            {
+                var jwk = new JsonWebKey
+                {
+                    Kty = keySection["kty"],
+                    Use = keySection["use"],
+                    Alg = keySection["alg"],
+                    Kid = keySection["kid"],
+                    N = keySection["n"],
+                    E = keySection["e"]
+                };
+                jwks.Keys.Add(jwk);
+            }
+
+            _jwksHolder.SetJwks(jwks);
+            _logger.LogInformation("✅ JWKS inline carregado com sucesso ({Count} chaves).", jwks.Keys.Count);
+            return;
+        }
+
         var endpoint = _configuration["Jwt:JwksEndpoint"];
         if (string.IsNullOrWhiteSpace(endpoint))
         {
