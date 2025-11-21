@@ -35,4 +35,49 @@ public sealed class EfProductRepository : IProductRepository
 
         return product;
     }
+
+    public async Task<Product?> GetBySkuAsync(string sku, CancellationToken cancellationToken = default)
+    {
+        var product = await _context.Products
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Sku == sku, cancellationToken);
+
+        return product;
+    }
+
+    public async Task<(IReadOnlyCollection<Product> Items, int TotalCount)> GetPagedAsync(
+        int page,
+        int pageSize,
+        string? sku = null,
+        string? name = null,
+        int? status = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.Products.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(sku))
+        {
+            query = query.Where(p => p.Sku.Contains(sku));
+        }
+
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            query = query.Where(p => p.Name.Contains(name));
+        }
+
+        if (status.HasValue)
+        {
+            query = query.Where(p => (int)p.Status == status.Value);
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        var items = await query
+            .OrderBy(p => p.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return (items, totalCount);
+    }
 }
