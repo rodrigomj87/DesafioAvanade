@@ -49,3 +49,12 @@ jobs:
         run: |
           export PATH="$PATH:$HOME/.dotnet/tools"
           dotnet format DesafioAvanade.sln --verify-no-changes
+
+      - name: Check for uncommitted changes
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Uncommitted changes detected after formatting:"
+            git status --porcelain
+            git diff
+            exit 1
+          fi
