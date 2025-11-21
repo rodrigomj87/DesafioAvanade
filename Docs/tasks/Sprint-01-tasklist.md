@@ -138,11 +138,13 @@ O gateway suporta dois modos de operação para validação JWT:
 1. **Modo Inline** (padrão): A chave pública RSA é configurada diretamente no appsettings.json
 2. **Modo Remoto**: A chave é obtida do endpoint JWKS do Auth Service
 
-Para usar o modo remoto:
+Para usar o modo remoto (desenvolvimento local):
 ```powershell
 $env:Jwt__JwksMode = "Remote"
 $env:Jwt__JwksEndpoint = "http://localhost:5010/.well-known/jwks.json"
 ```
+
+> **Nota**: Em ambientes de produção, substitua `localhost:5010` pela URL real do Auth Service (ex: `https://auth.example.com/.well-known/jwks.json`).
 
 #### Rate Limiting
 Configuração padrão:
