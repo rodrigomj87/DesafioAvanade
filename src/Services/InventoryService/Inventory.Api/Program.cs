@@ -3,6 +3,10 @@ using Inventory.Api.Extensions;
 using Inventory.Api.Middleware;
 using Inventory.Application.Contracts;
 using Inventory.Application.Services;
+using Inventory.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +14,8 @@ builder.ConfigureInventoryLogging();
 builder.Services.AddInventoryObservability(builder.Configuration);
 builder.Services.AddInventoryApplication();
 builder.Services.AddInventoryInfrastructure(builder.Configuration);
+
+await builder.Services.AddInventoryJwtAuthenticationAsync(builder.Configuration);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -23,11 +29,20 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
+    dbContext.Database.Migrate();
+}
+
 app.UseInventoryRequestLogging();
 app.UseExceptionHandler();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/api/v1/inventory/health", () => Results.Ok(new { status = "UP" }))
-    .WithName("GetInventoryHealth");
+    .WithName("GetInventoryHealth")
+    .AllowAnonymous();
 
 app.MapGet("/api/v1/inventory/products", async (
     [AsParameters] ProductQueryParameters parameters,
@@ -37,7 +52,8 @@ app.MapGet("/api/v1/inventory/products", async (
     var result = await service.GetPagedAsync(parameters, ct);
     return Results.Ok(result);
 })
-    .WithName("ListProducts");
+    .WithName("ListProducts")
+    .RequireAuthorization();
 
 app.MapPost("/api/v1/inventory/products", async (
     CreateProductDto request,
@@ -54,6 +70,7 @@ app.MapPost("/api/v1/inventory/products", async (
     var created = await service.CreateAsync(request, ct);
     return Results.Created($"/api/v1/inventory/products/{created.Id}", created);
 })
-    .WithName("CreateProduct");
+    .WithName("CreateProduct")
+    .RequireAuthorization();
 
 app.Run();

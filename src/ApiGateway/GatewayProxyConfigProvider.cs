@@ -24,7 +24,7 @@ internal sealed class GatewayProxyConfigProvider(IConfiguration configuration) :
                 {
                     new Dictionary<string, string>
                     {
-                        ["PathRemovePrefix"] = "/inventory"
+                        ["PathPattern"] = "/api/v1/inventory/{**catch-all}"
                     }
                 }
             },
