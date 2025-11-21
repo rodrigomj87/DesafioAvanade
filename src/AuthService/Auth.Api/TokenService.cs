@@ -23,9 +23,16 @@ internal sealed class TokenService
         _audience = settings.Audience;
         _tokenLifetime = TimeSpan.FromMinutes(settings.TokenLifetimeMinutes > 0 ? settings.TokenLifetimeMinutes : 60);
 
-        using var rsa = RSA.Create(2048);
+        var keyId = settings.KeyId ?? "auth-stub";
+
+        var rsa = RSA.Create(2048);
+        
+        if (!string.IsNullOrWhiteSpace(settings.RsaKeyXml))
+        {
+            rsa.FromXmlString(settings.RsaKeyXml);
+        }
+
         var parameters = rsa.ExportParameters(true);
-        var keyId = settings.KeyId ?? $"auth-key-{Guid.NewGuid():N}";
 
         var signingKey = new RsaSecurityKey(parameters)
         {

@@ -42,70 +42,68 @@ Docs/                        -> Documento base, ADRs, backlog, specs
   O gateway consome as URLs internas definidas em `appsettings.Development.json` (`Services:Inventory`, `Services:Sales`). Ajuste-as se mudar as portas dos microserviços.
 4. Health-checks: `http://localhost:5000/health` (gateway), `/api/v1/inventory/health`, `/api/v1/sales/health`, `/health` (Auth). Swagger disponível em `/swagger` nos serviços.
 
-  ## JWT / JWKS
-  - O stub de autenticação agora expõe `/.well-known/jwks.json` e assina tokens RS256 via `POST /api/v1/auth/token`.
-  - O gateway aceita duas formas de carregar a chave pública:
-    - `Jwt:JwksMode = Inline` (default): usa o bloco `Jwt:Jwks` do `appsettings*`.
-    - `Jwt:JwksMode = Remote`: baixa o JWKS de `Jwt:JwksEndpoint` (ex.: `http://localhost:5010/.well-known/jwks.json`).
-  - Para validar o fluxo end-to-end com o Auth stub:
-    1. Suba o Auth service: 
-      ```powershell
-      dotnet run --project src/AuthService/Auth.Api/Auth.Api.csproj --urls http://localhost:5010
-      ```
-    2. Execute o gateway com overrides apontando para o JWKS remoto:
-      ```powershell
-      $env:Jwt__JwksMode = "Remote"
-      $env:Jwt__JwksEndpoint = "http://localhost:5010/.well-known/jwks.json"
-      dotnet run --project src/ApiGateway/ApiGateway.csproj --urls http://localhost:5000
-      ```
-    3. Gere um token e chame o gateway:
-      ```powershell
-      $tokenResponse = Invoke-RestMethod -Method Post -Uri "http://localhost:5010/api/v1/auth/token" -ContentType "application/json" -Body '{"username":"tester","password":"pwd"}'
-      Invoke-RestMethod -Method Get -Uri "http://localhost:5000/inventory/api/v1/inventory/health" -Headers @{ Authorization = "Bearer $($tokenResponse.accessToken)" }
-      ```
-      4. Remova as variáveis de ambiente quando finalizar:
-        ```powershell
-        Remove-Item Env:Jwt__JwksMode
-        Remove-Item Env:Jwt__JwksEndpoint
-        ```
+  ## JWT / JWKS (Autenticação RS256)
+  - O Auth Service expõe `/.well-known/jwks.json` e assina tokens RS256 via `POST /auth/token`.
+  - O gateway usa **dynamic JWKS discovery** via `JwksBackgroundService`:
+    - Carrega JWKS do Auth Service no startup de forma assíncrona
+    - Retry logic com 10 tentativas e delay incremental (2-11 segundos)
+    - Armazena chaves em `JwksHolder` thread-safe para validação JWT
+  - Configuração no `appsettings.Development.json`:
+    ```json
+    "Jwt": {
+      "Issuer": "https://auth.local",
+      "Audience": "desafio-avanade",
+      "JwksMode": "Remote",
+      "JwksEndpoint": "http://localhost:5112/.well-known/jwks.json"
+    }
+    ```
+  - Para validar o fluxo end-to-end, use o script automatizado:
+    ```powershell
+    # Executa teste completo: Auth + Inventory + Gateway + validações
+    .\Docs\demo\e2e-test.ps1
+    ```
+    O script valida:
+    - ✅ Containers Docker (SQL Server + RabbitMQ)
+    - ✅ Health checks de todos os serviços
+    - ✅ Obtenção de token JWT do Auth Service
+    - ✅ Criação de produto via Gateway com autenticação
+    - ✅ Paginação via Gateway
+    - ✅ Logs estruturados JSON + OpenTelemetry traces
 
-  Esses passos garantem que o gateway valide o JWT exatamente com o JWKS publicado pelo Auth Service, reproduzindo o cenário descrito no ADR-003.
+  Conforme ADR-003, o Gateway valida JWT RS256 usando JWKS publicado dinamicamente pelo Auth Service.
 
-### Script PowerShell rápido
-Para agilizar a validação manual pode-se usar `Start-Job` para subir cada serviço e repetir os mesmos requests:
+### Portas dos Serviços
+- **Auth Service**: `http://localhost:5112`
+- **Inventory Service**: `http://localhost:5148`
+- **Gateway**: `http://localhost:5152`
+- **SQL Server**: `localhost:1433` (sa/YourStrong@Passw0rd)
+- **RabbitMQ**: `localhost:5672` (guest/guest) + Management UI `localhost:15672`
+
+### Validação Manual Rápida
+Para testes manuais individuais:
 
 ```powershell
-$global:AuthJob = Start-Job -ScriptBlock {
-    Set-Location 'd:/dev/DesafioAvanade'
-    dotnet run --project src/AuthService/Auth.Api/Auth.Api.csproj --urls http://localhost:5010
-}; Start-Sleep -Seconds 5
+# 1. Obter token do Auth Service
+$tokenResponse = Invoke-RestMethod -Method Post -Uri "http://localhost:5112/auth/token" `
+  -ContentType "application/json" `
+  -Body '{"username":"admin","password":"admin"}'
 
-$global:InventoryJob = Start-Job -ScriptBlock {
-    Set-Location 'd:/dev/DesafioAvanade'
-    dotnet run --project src/Services/InventoryService/Inventory.Api/Inventory.Api.csproj --urls http://localhost:5101
-}; Start-Sleep -Seconds 5
+# 2. Criar produto via Gateway (autenticado)
+$headers = @{ Authorization = "Bearer $($tokenResponse.token)" }
+$product = @{
+  sku = "TEST-001"
+  name = "Produto Teste"
+  description = "Teste manual"
+  price = 99.90
+} | ConvertTo-Json
 
-$global:GatewayJob = Start-Job -ScriptBlock {
-    Set-Location 'd:/dev/DesafioAvanade'
-    $env:Jwt__JwksMode = 'Remote'
-    $env:Jwt__JwksEndpoint = 'http://localhost:5010/.well-known/jwks.json'
-    dotnet run --project src/ApiGateway/ApiGateway.csproj --urls http://localhost:5000
-}; Start-Sleep -Seconds 5
+Invoke-RestMethod -Method Post -Uri "http://localhost:5152/inventory/products" `
+  -Headers $headers -ContentType "application/json" -Body $product
 
-$body = @{ username = 'tester'; password = 'pwd'; roles = @('inventory.read') } | ConvertTo-Json
-$global:tokenResponse = Invoke-RestMethod -Method Post -Uri 'http://localhost:5010/api/v1/auth/token' -ContentType 'application/json' -Body $body
-
-$headers = @{ Authorization = "Bearer $($global:tokenResponse.accessToken)" }
-Invoke-RestMethod -Method Get -Uri 'http://localhost:5000/inventory/api/v1/inventory/health' -Headers $headers
-
-Stop-Job -Id $GatewayJob.Id,$InventoryJob.Id,$AuthJob.Id
-Receive-Job -Id $GatewayJob.Id -Keep
-Receive-Job -Id $InventoryJob.Id -Keep
-Receive-Job -Id $AuthJob.Id -Keep
-Remove-Job -Id $GatewayJob.Id,$InventoryJob.Id,$AuthJob.Id
+# 3. Listar produtos via Gateway
+Invoke-RestMethod -Method Get -Uri "http://localhost:5152/inventory/products?page=1&pageSize=10" `
+  -Headers $headers
 ```
-
-O bloco final mostra os logs antes de remover os jobs para liberar os binários.
 
 ## Observabilidade, Health & Rate Limiting
 - Endpoints públicos: `GET /health` e `GET /healthz` continuam anônimos e respondem `200`, úteis para probes Kubernetes/Azure (`/healthz` é exposto diretamente pelo `UseGatewayPipeline()` em `Program.cs`).

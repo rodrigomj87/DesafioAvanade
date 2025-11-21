@@ -52,9 +52,25 @@ internal static class JwtConfigurationBuilder
 
         var client = httpClientFactory.CreateClient("jwks");
         client.Timeout = TimeSpan.FromSeconds(5);
-        var json = client.GetStringAsync(endpoint).GetAwaiter().GetResult();
-
-        return new JsonWebKeySet(json);
+        
+        const int maxRetries = 5;
+        var delay = TimeSpan.FromSeconds(2);
+        
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                var json = client.GetStringAsync(endpoint).GetAwaiter().GetResult();
+                return new JsonWebKeySet(json);
+            }
+            catch (HttpRequestException) when (attempt < maxRetries)
+            {
+                Thread.Sleep(delay);
+                delay = delay.Add(TimeSpan.FromSeconds(1));
+            }
+        }
+        
+        throw new InvalidOperationException($"Não foi possível buscar JWKS de {endpoint} após {maxRetries} tentativas.");
     }
 }
 

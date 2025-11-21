@@ -1,5 +1,6 @@
 using ApiGateway.Configurations;
 using ApiGateway;
+using ApiGateway.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
@@ -38,16 +39,15 @@ internal static class GatewayServiceCollectionExtensions
 
     public static IServiceCollection AddGatewayAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddSingleton(provider => JwtConfigurationBuilder.BuildJsonWebKeySet(
-            configuration,
-            provider.GetRequiredService<IHttpClientFactory>()));
+        services.AddSingleton<JwksHolder>();
+        services.AddHostedService<JwksBackgroundService>();
 
         services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer();
 
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
-            .Configure<IConfiguration, JsonWebKeySet>((options, config, jwks) =>
+            .Configure<IConfiguration, JwksHolder>((options, config, jwksHolder) =>
             {
                 var issuer = config["Jwt:Issuer"]
                     ?? throw new InvalidOperationException("Jwt:Issuer is not configured.");
@@ -60,7 +60,7 @@ internal static class GatewayServiceCollectionExtensions
                     ValidateAudience = !string.IsNullOrWhiteSpace(audience),
                     ValidAudience = audience,
                     ValidateIssuerSigningKey = true,
-                    IssuerSigningKeys = jwks.Keys,
+                    IssuerSigningKeys = jwksHolder.GetJwks().Keys,
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.FromMinutes(2)
                 };

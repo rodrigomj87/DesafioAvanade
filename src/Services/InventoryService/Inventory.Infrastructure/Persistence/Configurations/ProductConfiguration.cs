@@ -22,7 +22,8 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
             .IsRequired();
 
         builder.Property(p => p.Description)
-            .HasMaxLength(1024);
+            .HasMaxLength(1024)
+            .IsRequired();
 
         builder.Property(p => p.Price)
             .HasColumnType("decimal(18,2)");
