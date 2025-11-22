@@ -1,6 +1,7 @@
 using Inventory.Domain.Entities;
 using Inventory.Domain.Repositories;
 using Inventory.Infrastructure.Persistence;
+using Inventory.Infrastructure.Resilience;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -11,19 +12,30 @@ public sealed class OrderConfirmedConsumer : IConsumer<OrderConfirmedEvent>
 {
     private readonly IProductRepository _productRepository;
     private readonly InventoryDbContext _dbContext;
+    private readonly ResilientConsumerPolicy _resiliencePolicy;
     private readonly ILogger<OrderConfirmedConsumer> _logger;
 
     public OrderConfirmedConsumer(
         IProductRepository productRepository,
         InventoryDbContext dbContext,
+        ResilientConsumerPolicy resiliencePolicy,
         ILogger<OrderConfirmedConsumer> logger)
     {
         _productRepository = productRepository;
         _dbContext = dbContext;
+        _resiliencePolicy = resiliencePolicy;
         _logger = logger;
     }
 
     public async Task Consume(ConsumeContext<OrderConfirmedEvent> context)
+    {
+        await _resiliencePolicy.ExecuteAsync(async () =>
+        {
+            await ProcessEventAsync(context);
+        });
+    }
+
+    private async Task ProcessEventAsync(ConsumeContext<OrderConfirmedEvent> context)
     {
         var @event = context.Message;
         var messageId = context.MessageId?.ToString() ?? Guid.NewGuid().ToString();

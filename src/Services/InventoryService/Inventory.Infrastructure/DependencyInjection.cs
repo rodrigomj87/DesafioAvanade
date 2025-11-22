@@ -21,6 +21,8 @@ public static class InventoryInfrastructureServiceCollectionExtensions
         services.AddScoped<IProductRepository, EfProductRepository>();
         services.AddScoped<IStockMovementRepository, EfStockMovementRepository>();
 
+        services.AddSingleton<Inventory.Infrastructure.Resilience.ResilientConsumerPolicy>();
+
         services.AddMassTransit(x =>
         {
             x.AddConsumer<OrderConfirmedConsumer>();
