@@ -8,6 +8,10 @@ using Sales.Domain.Enums;
 using Sales.Infrastructure.Messaging;
 using Microsoft.Extensions.Logging;
 using FluentValidation;
+using Sales.Infrastructure.Observability;
+using Microsoft.AspNetCore.Http;
+using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace Sales.Infrastructure.Services;
 
@@ -18,26 +22,39 @@ public class OrderService : IOrderService
     private readonly IValidator<CreateOrderDto> _validator;
     private readonly IRabbitMqPublisher _publisher;
     private readonly ILogger<OrderService> _logger;
+    private readonly SalesMetrics _metrics;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public OrderService(
         IOrderRepository orderRepository,
         IStockChecker stockChecker,
         IValidator<CreateOrderDto> validator,
         IRabbitMqPublisher publisher,
-        ILogger<OrderService> logger)
+        ILogger<OrderService> logger,
+        SalesMetrics metrics,
+        IHttpContextAccessor httpContextAccessor)
     {
         _orderRepository = orderRepository;
         _stockChecker = stockChecker;
         _validator = validator;
         _publisher = publisher;
         _logger = logger;
+        _metrics = metrics;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public async Task<OrderResponse> CreateOrderAsync(CreateOrderDto dto, CancellationToken cancellationToken = default)
     {
+        var correlationId = ResolveCorrelationId();
+
         var validationResult = await _validator.ValidateAsync(dto, cancellationToken);
         if (!validationResult.IsValid)
         {
+            _metrics.TrackOrderFailed("validation_error");
+            _logger.LogWarning(
+                "Validation error while creating order for customer {CustomerId}. CorrelationId: {CorrelationId}",
+                dto.CustomerId,
+                correlationId);
             throw new ValidationException(validationResult.Errors);
         }
 
@@ -63,7 +80,16 @@ public class OrderService : IOrderService
 
         if (unavailableProducts.Any())
         {
-            _logger.LogWarning("Stock unavailable for products: {ProductIds}", string.Join(", ", unavailableProducts));
+            _logger.LogWarning(
+                "Stock unavailable for products: {ProductIds}. CorrelationId: {CorrelationId}, CustomerId: {CustomerId}",
+                string.Join(", ", unavailableProducts),
+                correlationId,
+                dto.CustomerId);
+            _metrics.TrackOrderFailed("insufficient_stock");
+            _logger.LogWarning(
+                "Insufficient stock detected for customer {CustomerId}. CorrelationId: {CorrelationId}",
+                dto.CustomerId,
+                correlationId);
             throw new InvalidOperationException($"Insufficient stock for products: {string.Join(", ", unavailableProducts)}");
         }
 
@@ -78,43 +104,83 @@ public class OrderService : IOrderService
 
         var customerId = CustomerId.Create(dto.CustomerId);
         var order = Order.Create(customerId, orderItems);
-
-        await _orderRepository.AddAsync(order, cancellationToken);
-
-        _logger.LogInformation("Order {OrderId} created for customer {CustomerId} with {ItemCount} items",
-            order.Id, dto.CustomerId, orderItems.Count);
-
-        var orderConfirmedEvent = new OrderConfirmedEvent
+        var loggingScope = _logger.BeginScope(new Dictionary<string, object?>
         {
-            OrderId = order.Id,
-            CustomerId = order.CustomerId,
-            Items = order.Items.Select(item => new OrderItemEvent
-            {
-                ProductId = item.ProductId,
-                Quantity = item.Quantity,
-                UnitPrice = item.UnitPrice
-            }).ToList(),
-            TotalAmount = order.TotalAmount,
-            CreatedAt = order.CreatedAt
-        };
-
-        var headers = new Dictionary<string, object>
-        {
-            { "x-source-service", "sales-service" },
-            { "x-correlation-id", Guid.NewGuid().ToString() }
-        };
+            ["CorrelationId"] = correlationId,
+            ["OrderId"] = order.Id,
+            ["CustomerId"] = dto.CustomerId
+        });
 
         try
         {
-            await _publisher.PublishAsync(orderConfirmedEvent, "order.confirmed", headers, cancellationToken);
-            _logger.LogInformation("Order confirmed event published for Order {OrderId}", order.Id);
+            await _orderRepository.AddAsync(order, cancellationToken);
+
+            _logger.LogInformation(
+                "Order {OrderId} created for customer {CustomerId} with {ItemCount} items. CorrelationId: {CorrelationId}",
+                order.Id,
+                dto.CustomerId,
+                orderItems.Count,
+                correlationId);
+
+            _metrics.TrackOrderCreated(order.Id, dto.CustomerId);
+
+            var orderConfirmedEvent = new OrderConfirmedEvent
+            {
+                OrderId = order.Id,
+                CustomerId = order.CustomerId,
+                Items = order.Items.Select(item => new OrderItemEvent
+                {
+                    ProductId = item.ProductId,
+                    Quantity = item.Quantity,
+                    UnitPrice = item.UnitPrice
+                }).ToList(),
+                TotalAmount = order.TotalAmount,
+                CreatedAt = order.CreatedAt
+            };
+
+            var headers = new Dictionary<string, object>
+            {
+                { "x-source-service", "sales-service" },
+                { "x-correlation-id", correlationId },
+                { "x-customer-id", dto.CustomerId }
+            };
+
+            try
+            {
+                await _publisher.PublishAsync(orderConfirmedEvent, "order.confirmed", headers, cancellationToken);
+                _logger.LogInformation("Order confirmed event published for Order {OrderId}. CorrelationId: {CorrelationId}", order.Id, correlationId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to publish order confirmed event for Order {OrderId}. CorrelationId: {CorrelationId}", order.Id, correlationId);
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogError(ex, "Failed to publish order confirmed event for Order {OrderId}", order.Id);
+            loggingScope?.Dispose();
         }
 
         return MapToOrderResponse(order);
+    }
+
+    private string ResolveCorrelationId()
+    {
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (httpContext != null && httpContext.Request.Headers.TryGetValue("X-Correlation-ID", out var headerValue))
+        {
+            var parsed = headerValue.ToString();
+            if (!string.IsNullOrWhiteSpace(parsed))
+            {
+                return parsed;
+            }
+        }
+
+        if (httpContext != null && !string.IsNullOrWhiteSpace(httpContext.TraceIdentifier))
+        {
+            return httpContext.TraceIdentifier;
+        }
+
+        return Activity.Current?.TraceId.ToString() ?? Guid.NewGuid().ToString();
     }
 
     public async Task<PagedResult<OrderResponse>> GetOrdersAsync(

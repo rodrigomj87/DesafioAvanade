@@ -1,11 +1,13 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Inventory.Application.Services;
 using Inventory.Domain.Enums;
+using Inventory.Infrastructure.Observability;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
+using OpenTelemetry.Context.Propagation;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
@@ -13,20 +15,24 @@ namespace Inventory.Infrastructure.Messaging;
 
 public sealed class RabbitMqConsumer : BackgroundService
 {
+    private static readonly TextMapPropagator Propagator = Propagators.DefaultTextMapPropagator;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<RabbitMqConsumer> _logger;
     private readonly RabbitMqConsumerSettings _settings;
+    private readonly InventoryMetrics _metrics;
     private IConnection? _connection;
     private IModel? _channel;
 
     public RabbitMqConsumer(
         IServiceProvider serviceProvider,
         ILogger<RabbitMqConsumer> logger,
-        RabbitMqConsumerSettings settings)
+        RabbitMqConsumerSettings settings,
+        InventoryMetrics metrics)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
         _settings = settings;
+        _metrics = metrics;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -99,11 +105,27 @@ public sealed class RabbitMqConsumer : BackgroundService
         var consumer = new AsyncEventingBasicConsumer(_channel);
         consumer.Received += async (sender, ea) =>
         {
+            var propagationContext = ExtractPropagationContext(ea.BasicProperties);
+            var correlationId = GetHeaderValue(ea.BasicProperties, "x-correlation-id") ?? Guid.NewGuid().ToString();
+            Activity? activity = null;
+            OrderConfirmedEvent? orderEvent = null;
             try
             {
+                activity = InventoryTelemetry.ActivitySource.StartActivity(
+                    "RabbitMQ Consume",
+                    ActivityKind.Consumer,
+                    propagationContext.ActivityContext);
+
+                activity?.SetTag("messaging.system", "rabbitmq");
+                activity?.SetTag("messaging.destination", _settings.QueueName);
+                activity?.SetTag("messaging.rabbitmq.routing_key", ea.RoutingKey);
+                activity?.SetTag("messaging.message_id", ea.BasicProperties?.MessageId);
+                activity?.SetTag("messaging.operation", "process");
+                activity?.SetTag("messaging.conversation_id", correlationId);
+
                 var body = ea.Body.ToArray();
                 var message = Encoding.UTF8.GetString(body);
-                var orderEvent = JsonSerializer.Deserialize<OrderConfirmedEvent>(message, new JsonSerializerOptions
+                orderEvent = JsonSerializer.Deserialize<OrderConfirmedEvent>(message, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true
                 });
@@ -116,9 +138,11 @@ public sealed class RabbitMqConsumer : BackgroundService
                 }
 
                 _logger.LogInformation(
-                    "[INFO] Evento OrderConfirmed recebido. OrderId: {OrderId}, Items: {ItemCount}",
+                    "[INFO] Evento OrderConfirmed recebido. OrderId: {OrderId}, CustomerId: {CustomerId}, Items: {ItemCount}, CorrelationId: {CorrelationId}",
                     orderEvent.OrderId,
-                    orderEvent.Items.Count);
+                    orderEvent.CustomerId,
+                    orderEvent.Items.Count,
+                    correlationId);
 
                 using var scope = _serviceProvider.CreateScope();
                 var stockMovementService = scope.ServiceProvider.GetRequiredService<StockMovementService>();
@@ -135,29 +159,58 @@ public sealed class RabbitMqConsumer : BackgroundService
                             orderEvent.OrderId.ToString()
                         ), stoppingToken);
 
+                        _metrics.TrackStockUpdate(item.ProductId, orderEvent.OrderId, item.Quantity);
+
                         _logger.LogInformation(
-                            "[INFO] Baixa de estoque registrada. ProductId: {ProductId}, Quantity: {Quantity}",
+                            "[INFO] Baixa de estoque registrada. ProductId: {ProductId}, Quantity: {Quantity}, OrderId: {OrderId}, CustomerId: {CustomerId}, CorrelationId: {CorrelationId}",
                             item.ProductId,
-                            item.Quantity);
+                            item.Quantity,
+                            orderEvent.OrderId,
+                            orderEvent.CustomerId,
+                            correlationId);
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(
                             ex,
-                            "[ERRO] Erro ao processar item do pedido. ProductId: {ProductId}, OrderId: {OrderId}",
+                            "[ERRO] Erro ao processar item do pedido. ProductId: {ProductId}, OrderId: {OrderId}, CustomerId: {CustomerId}, CorrelationId: {CorrelationId}",
                             item.ProductId,
-                            orderEvent.OrderId);
+                            orderEvent.OrderId,
+                            orderEvent.CustomerId,
+                            correlationId);
                         throw;
                     }
                 }
 
                 _channel.BasicAck(ea.DeliveryTag, false);
-                _logger.LogInformation("[INFO] Evento OrderConfirmed processado com sucesso. OrderId: {OrderId}", orderEvent.OrderId);
+                if (orderEvent.CreatedAt != default)
+                {
+                    var latencyMs = (DateTime.UtcNow - orderEvent.CreatedAt.ToUniversalTime()).TotalMilliseconds;
+                    _metrics.TrackEventLatency(latencyMs, orderEvent.OrderId);
+                }
+
+                _logger.LogInformation(
+                    "[INFO] Evento OrderConfirmed processado com sucesso. OrderId: {OrderId}, CustomerId: {CustomerId}, CorrelationId: {CorrelationId}",
+                    orderEvent.OrderId,
+                    orderEvent.CustomerId,
+                    correlationId);
+
+                activity?.SetStatus(ActivityStatusCode.Ok);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[ERRO] Erro ao processar mensagem RabbitMQ");
+                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                _logger.LogError(
+                    ex,
+                    "[ERRO] Erro ao processar mensagem RabbitMQ. OrderId: {OrderId}, CustomerId: {CustomerId}, CorrelationId: {CorrelationId}",
+                    orderEvent?.OrderId,
+                    orderEvent?.CustomerId,
+                    correlationId);
                 _channel.BasicNack(ea.DeliveryTag, false, true);
+            }
+            finally
+            {
+                activity?.Dispose();
             }
         };
 
@@ -169,6 +222,50 @@ public sealed class RabbitMqConsumer : BackgroundService
         _logger.LogInformation("[INFO] RabbitMQ consumer iniciado e aguardando mensagens...");
 
         await Task.Delay(Timeout.Infinite, stoppingToken);
+    }
+
+    private static PropagationContext ExtractPropagationContext(IBasicProperties? properties)
+    {
+        var headers = properties?.Headers;
+        return Propagator.Extract(default, headers, static (dict, key) =>
+        {
+            if (dict == null)
+            {
+                return Array.Empty<string>();
+            }
+
+            if (!dict.TryGetValue(key, out var value) || value == null)
+            {
+                return Array.Empty<string>();
+            }
+
+            return value switch
+            {
+                byte[] bytes => new[] { Encoding.UTF8.GetString(bytes) },
+                string str => new[] { str },
+                _ => new[] { value.ToString() ?? string.Empty }
+            };
+        });
+    }
+
+    private static string? GetHeaderValue(IBasicProperties? properties, string key)
+    {
+        if (properties?.Headers == null)
+        {
+            return null;
+        }
+
+        if (!properties.Headers.TryGetValue(key, out var value) || value is null)
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            byte[] bytes => Encoding.UTF8.GetString(bytes),
+            string str => str,
+            _ => value.ToString()
+        };
     }
 
     public override void Dispose()
