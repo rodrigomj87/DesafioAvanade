@@ -12,6 +12,7 @@ builder.Services.AddDbContext<AuthDbContext>(options =>
 
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
 builder.Services.AddSingleton<TokenService>();
+builder.Services.AddScoped<Auth.Api.Services.RefreshTokenService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -41,6 +42,19 @@ app.MapPost("/api/v1/auth/token", (AuthRequest request, TokenService tokenServic
 
 app.MapGet("/.well-known/jwks.json", (TokenService tokenService) => Results.Json(tokenService.GetJwksDocument()));
 
+app.MapPost("/api/v1/auth/refresh", async (RefreshRequest request, Auth.Api.Services.RefreshTokenService refreshTokenService) =>
+{
+    try
+    {
+        var accessToken = await refreshTokenService.RefreshAccessTokenAsync(request.RefreshToken);
+        return Results.Ok(new RefreshResponse(accessToken, 3600));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
 app.MapGet("/health", () => Results.Ok(new { status = "UP" }));
 
 app.Run();
@@ -48,3 +62,7 @@ app.Run();
 public record AuthRequest(string Username, string Password, string[]? Roles);
 
 public record AuthResponse(string AccessToken, int ExpiresIn, string[] Roles, string RefreshToken);
+
+public record RefreshRequest(string RefreshToken);
+
+public record RefreshResponse(string AccessToken, int ExpiresIn);

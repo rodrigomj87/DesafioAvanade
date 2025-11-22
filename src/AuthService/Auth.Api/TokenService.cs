@@ -7,7 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace Auth.Api;
 
-internal sealed class TokenService
+public sealed class TokenService
 {
     private readonly JwtSecurityTokenHandler _tokenHandler = new();
     private readonly SigningCredentials _credentials;
@@ -91,4 +91,4 @@ internal sealed class TokenService
     public object GetJwksDocument() => new { keys = new[] { _publicJsonWebKey } };
 }
 
-internal sealed record AuthTokenResult(string AccessToken, int ExpiresIn, IReadOnlyCollection<string> Roles);
+public sealed record AuthTokenResult(string AccessToken, int ExpiresIn, IReadOnlyCollection<string> Roles);
