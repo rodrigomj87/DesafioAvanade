@@ -13,6 +13,7 @@ builder.Services.AddDbContext<AuthDbContext>(options =>
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
 builder.Services.AddSingleton<TokenService>();
 builder.Services.AddScoped<Auth.Api.Services.RefreshTokenService>();
+builder.Services.AddHostedService<Auth.Api.BackgroundServices.TokenCleanupService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
