@@ -9,7 +9,7 @@ public static class OrdersEndpointsExtensions
 {
     public static RouteGroupBuilder MapOrdersEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/api/v1/orders")
+        var group = app.MapGroup("/api/v1/sales/orders")
             .WithTags("Orders");
 
         group.MapPost("/", CreateOrderAsync)
@@ -41,7 +41,7 @@ public static class OrdersEndpointsExtensions
         CancellationToken cancellationToken)
     {
         var response = await orderService.CreateOrderAsync(dto, cancellationToken);
-        return TypedResults.Created($"/api/v1/orders/{response.Id}", response);
+        return TypedResults.Created($"/api/v1/sales/orders/{response.Id}", response);
     }
 
     private static async Task<Ok<PagedResult<OrderResponse>>> GetOrdersAsync(

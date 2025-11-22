@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Inventory.Application.Services;
+using Inventory.Domain.Enums;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -81,7 +82,7 @@ public sealed class RabbitMqConsumer : BackgroundService
             {
                 _logger.LogWarning(
                     ex,
-                    "⚠️  Tentativa {Attempt}/{MaxRetries}: Erro ao conectar RabbitMQ consumer, tentando novamente em {Delay}s...",
+                    "[ERRO] Tentativa {Attempt}/{MaxRetries}: Erro ao conectar RabbitMQ consumer, tentando novamente em {Delay}s...",
                     attempt,
                     maxRetries,
                     delay.TotalSeconds);
@@ -91,7 +92,7 @@ public sealed class RabbitMqConsumer : BackgroundService
 
         if (_channel == null)
         {
-            _logger.LogError("❌ Falha ao conectar RabbitMQ consumer após {MaxRetries} tentativas", maxRetries);
+            _logger.LogError("[ERRO] Falha ao conectar RabbitMQ consumer após {MaxRetries} tentativas", maxRetries);
             return;
         }
 
@@ -115,7 +116,7 @@ public sealed class RabbitMqConsumer : BackgroundService
                 }
 
                 _logger.LogInformation(
-                    "📦 Evento OrderConfirmed recebido. OrderId: {OrderId}, Items: {ItemCount}",
+                    "[INFO] Evento OrderConfirmed recebido. OrderId: {OrderId}, Items: {ItemCount}",
                     orderEvent.OrderId,
                     orderEvent.Items.Count);
 
@@ -128,14 +129,14 @@ public sealed class RabbitMqConsumer : BackgroundService
                     {
                         await stockMovementService.RegisterAsync(new Inventory.Application.Contracts.RegisterStockMovementDto(
                             item.ProductId,
-                            Inventory.Domain.Enums.StockMovementType.Out,
+                            StockMovementType.Out,
                             item.Quantity,
                             $"Venda - Pedido {orderEvent.OrderId}",
                             orderEvent.OrderId.ToString()
                         ), stoppingToken);
 
                         _logger.LogInformation(
-                            "✅ Baixa de estoque registrada. ProductId: {ProductId}, Quantity: {Quantity}",
+                            "[INFO] Baixa de estoque registrada. ProductId: {ProductId}, Quantity: {Quantity}",
                             item.ProductId,
                             item.Quantity);
                     }
@@ -143,7 +144,7 @@ public sealed class RabbitMqConsumer : BackgroundService
                     {
                         _logger.LogError(
                             ex,
-                            "❌ Erro ao processar item do pedido. ProductId: {ProductId}, OrderId: {OrderId}",
+                            "[ERRO] Erro ao processar item do pedido. ProductId: {ProductId}, OrderId: {OrderId}",
                             item.ProductId,
                             orderEvent.OrderId);
                         throw;
@@ -151,11 +152,11 @@ public sealed class RabbitMqConsumer : BackgroundService
                 }
 
                 _channel.BasicAck(ea.DeliveryTag, false);
-                _logger.LogInformation("✅ Evento OrderConfirmed processado com sucesso. OrderId: {OrderId}", orderEvent.OrderId);
+                _logger.LogInformation("[INFO] Evento OrderConfirmed processado com sucesso. OrderId: {OrderId}", orderEvent.OrderId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Erro ao processar mensagem RabbitMQ");
+                _logger.LogError(ex, "[ERRO] Erro ao processar mensagem RabbitMQ");
                 _channel.BasicNack(ea.DeliveryTag, false, true);
             }
         };
@@ -165,7 +166,7 @@ public sealed class RabbitMqConsumer : BackgroundService
             autoAck: false,
             consumer: consumer);
 
-        _logger.LogInformation("🎧 RabbitMQ consumer iniciado e aguardando mensagens...");
+        _logger.LogInformation("[INFO] RabbitMQ consumer iniciado e aguardando mensagens...");
 
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
