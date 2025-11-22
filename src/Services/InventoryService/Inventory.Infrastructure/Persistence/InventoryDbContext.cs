@@ -12,6 +12,7 @@ public sealed class InventoryDbContext : DbContext
 
     public DbSet<Product> Products => Set<Product>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
+    public DbSet<ProcessedMessage> ProcessedMessages => Set<ProcessedMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
