@@ -1,8 +1,12 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using OpenTelemetry.Context.Propagation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
+using Sales.Infrastructure.Observability;
+using OpenTelemetry;
 
 namespace Sales.Infrastructure.Messaging;
 
@@ -13,6 +17,7 @@ public interface IRabbitMqPublisher
 
 public sealed class RabbitMqPublisher : IRabbitMqPublisher, IDisposable
 {
+    private static readonly TextMapPropagator Propagator = Propagators.DefaultTextMapPropagator;
     private readonly RabbitMqSettings _settings;
     private readonly ILogger<RabbitMqPublisher> _logger;
     private readonly IConnection _connection;
@@ -50,7 +55,7 @@ public sealed class RabbitMqPublisher : IRabbitMqPublisher, IDisposable
             catch (Exception ex) when (attempt < maxRetries)
             {
                 _logger.LogWarning(
-                    "⚠️  Tentativa {Attempt}/{MaxRetries}: Não foi possível conectar ao RabbitMQ, tentando novamente em {Delay}s... (Host: {Host}:{Port})",
+                    "[ERRO]  Tentativa {Attempt}/{MaxRetries}: Não foi possível conectar ao RabbitMQ, tentando novamente em {Delay}s... (Host: {Host}:{Port}) - " + ex.Message,
                     attempt,
                     maxRetries,
                     delay.TotalSeconds,
@@ -62,7 +67,7 @@ public sealed class RabbitMqPublisher : IRabbitMqPublisher, IDisposable
             {
                 _logger.LogError(
                     ex,
-                    "❌ Falha ao conectar ao RabbitMQ após {MaxRetries} tentativas. Host: {Host}:{Port}",
+                    "[ERRO] Falha ao conectar ao RabbitMQ após {MaxRetries} tentativas. Host: {Host}:{Port}",
                     maxRetries,
                     _settings.Host,
                     _settings.Port);
@@ -104,20 +109,36 @@ public sealed class RabbitMqPublisher : IRabbitMqPublisher, IDisposable
 
         while (retryCount <= _settings.RetryCount)
         {
+            Activity? activity = null;
             try
             {
+                var parentContext = Activity.Current?.Context ?? default;
+                activity = SalesTelemetry.ActivitySource.StartActivity("RabbitMQ Publish", ActivityKind.Producer, parentContext);
+                activity?.SetTag("messaging.system", "rabbitmq");
+                activity?.SetTag("messaging.destination", _settings.ExchangeName);
+                activity?.SetTag("messaging.rabbitmq.routing_key", routingKey);
+
                 var body = SerializeMessage(message);
                 var properties = _channel.CreateBasicProperties();
                 properties.ContentType = "application/json";
                 properties.DeliveryMode = 2;
                 properties.Timestamp = new AmqpTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
                 properties.MessageId = Guid.NewGuid().ToString();
-                properties.Headers = headers ?? new Dictionary<string, object>();
+                properties.Headers = headers != null
+                    ? new Dictionary<string, object>(headers)
+                    : new Dictionary<string, object>();
 
                 if (!properties.Headers.ContainsKey("x-source-service"))
                 {
                     properties.Headers["x-source-service"] = "sales-service";
                 }
+
+                var correlationId = EnsureCorrelationId(properties.Headers);
+                properties.CorrelationId = correlationId;
+
+                InjectTraceContext(properties, activity);
+                activity?.SetTag("messaging.message_id", properties.MessageId);
+                activity?.SetTag("messaging.conversation_id", correlationId);
 
                 _channel.BasicPublish(
                     exchange: _settings.ExchangeName,
@@ -129,15 +150,19 @@ public sealed class RabbitMqPublisher : IRabbitMqPublisher, IDisposable
                 await Task.CompletedTask;
 
                 _logger.LogInformation(
-                    "Mensagem publicada com sucesso. Exchange: {Exchange}, RoutingKey: {RoutingKey}, MessageId: {MessageId}",
+                    "Mensagem publicada com sucesso. Exchange: {Exchange}, RoutingKey: {RoutingKey}, MessageId: {MessageId}, CorrelationId: {CorrelationId}",
                     _settings.ExchangeName,
                     routingKey,
-                    properties.MessageId);
+                    properties.MessageId,
+                    correlationId);
+
+                activity?.SetStatus(ActivityStatusCode.Ok);
 
                 return;
             }
             catch (Exception ex) when (retryCount < _settings.RetryCount)
             {
+                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                 retryCount++;
                 _logger.LogWarning(
                     ex,
@@ -156,6 +181,7 @@ public sealed class RabbitMqPublisher : IRabbitMqPublisher, IDisposable
             }
             catch (Exception ex)
             {
+                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                 _logger.LogError(
                     ex,
                     "Falha definitiva ao publicar mensagem após {RetryCount} tentativas. RoutingKey: {RoutingKey}",
@@ -163,7 +189,42 @@ public sealed class RabbitMqPublisher : IRabbitMqPublisher, IDisposable
                     routingKey);
                 throw;
             }
+            finally
+            {
+                activity?.Dispose();
+            }
         }
+    }
+
+    private static void InjectTraceContext(IBasicProperties properties, Activity? activity)
+    {
+        properties.Headers ??= new Dictionary<string, object>();
+
+        var propagationContext = new PropagationContext(
+            activity?.Context ?? Activity.Current?.Context ?? default,
+            default);
+
+        Propagator.Inject(propagationContext, properties.Headers, static (headers, key, value) =>
+        {
+            headers[key] = value;
+        });
+    }
+
+    private static string EnsureCorrelationId(IDictionary<string, object> headers)
+    {
+        if (headers.TryGetValue("x-correlation-id", out var existing))
+        {
+            return existing switch
+            {
+                byte[] bytes => Encoding.UTF8.GetString(bytes),
+                string str => str,
+                _ => existing?.ToString() ?? Guid.NewGuid().ToString()
+            };
+        }
+
+        var correlationId = Activity.Current?.TraceId.ToString() ?? Guid.NewGuid().ToString();
+        headers["x-correlation-id"] = correlationId;
+        return correlationId;
     }
 
     private static byte[] SerializeMessage<T>(T message) where T : class

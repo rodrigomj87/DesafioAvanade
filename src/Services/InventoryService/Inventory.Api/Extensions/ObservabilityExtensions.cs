@@ -1,6 +1,7 @@
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using Inventory.Infrastructure.Observability;
 using Serilog;
 using Serilog.Formatting.Json;
 
@@ -33,10 +34,12 @@ internal static class ObservabilityExtensions
             .ConfigureResource(resource => resource
                 .AddService(serviceName: serviceName, serviceVersion: serviceVersion))
             .WithTracing(tracing => tracing
+                .AddSource(InventoryTelemetry.ActivitySourceName)
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddConsoleExporter())
             .WithMetrics(metrics => metrics
+                .AddMeter(InventoryTelemetry.MeterName)
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()

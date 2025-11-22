@@ -1,6 +1,7 @@
 using Inventory.Domain.Repositories;
 using Inventory.Infrastructure.Persistence;
 using Inventory.Infrastructure.Repositories;
+using Inventory.Infrastructure.Observability;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
@@ -18,6 +19,7 @@ public static class InventoryInfrastructureServiceCollectionExtensions
 
         services.AddScoped<IProductRepository, EfProductRepository>();
         services.AddScoped<IStockMovementRepository, EfStockMovementRepository>();
+        services.AddSingleton<InventoryMetrics>();
 
         var rabbitMqConfig = configuration.GetSection("RabbitMq");
         services.AddSingleton(new Inventory.Infrastructure.Messaging.RabbitMqConsumerSettings

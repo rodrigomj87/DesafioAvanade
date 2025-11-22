@@ -8,6 +8,7 @@ using Sales.Infrastructure.Persistence;
 using Sales.Infrastructure.Repositories;
 using Sales.Infrastructure.Services;
 using Sales.Infrastructure.Messaging;
+using Sales.Infrastructure.Observability;
 using FluentValidation;
 
 namespace Microsoft.Extensions.DependencyInjection;
@@ -26,6 +27,7 @@ public static class SalesInfrastructureExtensions
 
         services.AddScoped<IOrderRepository, OrderRepository>();
         services.AddScoped<IOrderService, OrderService>();
+        services.AddSingleton<SalesMetrics>();
 
         services.AddValidatorsFromAssemblyContaining<CreateOrderDtoValidator>();
 

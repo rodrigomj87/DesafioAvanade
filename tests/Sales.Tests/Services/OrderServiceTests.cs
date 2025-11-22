@@ -1,5 +1,6 @@
 using FluentValidation;
 using FluentValidation.Results;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Sales.Application.Contracts;
@@ -8,6 +9,7 @@ using Sales.Application.Services;
 using Sales.Domain.Entities;
 using Sales.Domain.Repositories;
 using Sales.Infrastructure.Messaging;
+using Sales.Infrastructure.Observability;
 using Sales.Infrastructure.Services;
 using Xunit;
 
@@ -20,6 +22,8 @@ public class OrderServiceTests
     private readonly Mock<IValidator<CreateOrderDto>> _mockValidator;
     private readonly Mock<IRabbitMqPublisher> _mockPublisher;
     private readonly Mock<ILogger<OrderService>> _mockLogger;
+    private readonly Mock<IHttpContextAccessor> _mockHttpContextAccessor;
+    private readonly SalesMetrics _salesMetrics;
     private readonly OrderService _orderService;
 
     public OrderServiceTests()
@@ -29,13 +33,18 @@ public class OrderServiceTests
         _mockValidator = new Mock<IValidator<CreateOrderDto>>();
         _mockPublisher = new Mock<IRabbitMqPublisher>();
         _mockLogger = new Mock<ILogger<OrderService>>();
+        _mockHttpContextAccessor = new Mock<IHttpContextAccessor>();
+        _mockHttpContextAccessor.Setup(a => a.HttpContext).Returns(new DefaultHttpContext());
+        _salesMetrics = new SalesMetrics();
 
         _orderService = new OrderService(
             _mockOrderRepository.Object,
             _mockStockChecker.Object,
             _mockValidator.Object,
             _mockPublisher.Object,
-            _mockLogger.Object
+            _mockLogger.Object,
+            _salesMetrics,
+            _mockHttpContextAccessor.Object
         );
     }
 
