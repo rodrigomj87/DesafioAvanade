@@ -19,15 +19,16 @@ src/
       Sales.Domain/
       Sales.Infrastructure/
 .github/workflows/           -> Workflows GitHub Actions
-infra/dev/                   -> Docker Compose (RabbitMQ + SQL Server)
+infra/dev/                   -> Docker Compose (RabbitMQ + SQL Server + OTEL Collector/Prometheus/Grafana/Jaeger)
 Docs/                        -> Documento base, ADRs, backlog, specs
 ```
 
 ## Rodando localmente
-1. Suba dependências (SQL Server + RabbitMQ):
+1. Suba dependências (SQL Server, RabbitMQ e stack de observabilidade OTLP → Collector → Prometheus/Grafana/Jaeger):
   ```powershell
-  docker compose -f infra/dev/docker-compose.yml up -d
+  docker compose -f infra/dev/docker-compose.yml up -d sqlserver rabbitmq jaeger otel-collector prometheus grafana
   ```
+  > A stack expõe: Prometheus `http://localhost:9090`, Grafana `http://localhost:3000` (admin/admin) e Jaeger `http://localhost:16686`.
 2. Crie/atualize o banco Inventory (contexto `InventoryDbContext`):
   ```powershell
   dotnet ef database update --project src/Services/InventoryService/Inventory.Infrastructure/Inventory.Infrastructure.csproj --startup-project src/Services/InventoryService/Inventory.Api/Inventory.Api.csproj
@@ -110,7 +111,21 @@ Invoke-RestMethod -Method Get -Uri "http://localhost:5152/inventory/products?pag
 - O middleware de correlação garante que toda requisição receba/propague `X-Correlation-ID`, presente nos logs e encaminhado aos serviços behind o gateway.
 - Toda a configuração do gateway foi encapsulada em extensions (`ConfigureGatewayLogging`, `AddGatewayObservability`, `AddGatewaySecurity`, `UseGatewayPipeline`), mantendo o `Program.cs` enxuto seguindo KISS e garantindo que Serilog JSON, OpenTelemetry (AspNetCore/HttpClient/Runtime) e rate limiting estejam sempre habilitados em conjunto.
 - Logs utilizam Serilog em JSON estruturado (`UseSerilog` + `UseSerilogRequestLogging`), facilitando coleta em ferramentas centralizadas.
-- OpenTelemetry já está habilitado com exporters de console para traces e métricas (AspNetCore + HttpClient + Runtime). Para desativar/alterar exporters use variáveis `OTEL_*` ou edite as extensions mencionadas acima.
+- OpenTelemetry agora exporta traces/métricas via OTLP (AspNetCore + HttpClient + Runtime + fontes customizadas) para o `otel-collector` definido em `infra/dev/docker-compose.yml`. Cada serviço lê as configurações da seção `OpenTelemetry:Otlp` dos `appsettings*`:
+  ```json
+  "OpenTelemetry": {
+    "Otlp": {
+      "Endpoint": "http://localhost:4317",
+      "Protocol": "Grpc",
+      "Headers": ""
+    }
+  }
+  ```
+  Ajuste `Endpoint`, `Headers` ou `Protocol` para apontar para collectors externos; para desativar temporariamente basta remover a seção ou usar variáveis `OTEL_EXPORTER_OTLP_*`.
+- O collector (arquivo `infra/dev/otel-collector-config.yaml`) envia traces para Jaeger e métricas para Prometheus, ambos consumidos pelo Grafana (dashboard a ser configurado). Para validar localmente:
+  1. Gere tráfego (ex.: `Docs/demo/e2e-test.ps1`).
+  2. Consulte Jaeger em `http://localhost:16686` (service `SalesService`, `InventoryService` ou `ApiGateway`).
+  3. Abra Grafana `http://localhost:3000`, adicione data source Prometheus (`http://prometheus:9090`) e crie dashboards com métricas `sales.events.orders_created_total`, `inventory.events.event_processing_duration` etc.
 - Rate limiting: por padrão são permitidas 30 requisições a cada 10 segundos por cliente (IP). Configure via `appsettings*` na seção `RateLimiting` ou via env vars (`RateLimiting__PermitLimit`, `RateLimiting__WindowSeconds`, `RateLimiting__QueueLimit`). Apenas as rotas proxy (`/inventory`, `/sales`) estão sujeitas ao limitador.
 
 ## Workflows
