@@ -57,6 +57,19 @@ app.MapPost("/api/v1/auth/refresh", async (RefreshRequest request, Auth.Api.Serv
     }
 });
 
+app.MapPost("/api/v1/auth/revoke", async (RevokeRequest request, Auth.Api.Services.RefreshTokenService refreshTokenService) =>
+{
+    try
+    {
+        await refreshTokenService.RevokeRefreshTokenAsync(request.RefreshToken);
+        return Results.Ok(new { message = "Token revoked successfully" });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
 app.MapGet("/health", () => Results.Ok(new { status = "UP" }));
 
 app.Run();
@@ -68,3 +81,5 @@ public record AuthResponse(string AccessToken, int ExpiresIn, string[] Roles, st
 public record RefreshRequest(string RefreshToken);
 
 public record RefreshResponse(string AccessToken, int ExpiresIn);
+
+public record RevokeRequest(string RefreshToken);
