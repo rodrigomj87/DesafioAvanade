@@ -63,4 +63,10 @@ public sealed class ProductService
         var products = await _repository.GetAllAsync(cancellationToken);
         return products.Select(ProductDto.FromEntity).ToArray();
     }
+
+    public async Task<ProductDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var product = await _repository.GetByIdAsync(id, cancellationToken);
+        return product is not null ? ProductDto.FromEntity(product) : null;
+    }
 }

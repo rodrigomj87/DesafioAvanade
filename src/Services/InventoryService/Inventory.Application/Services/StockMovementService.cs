@@ -36,6 +36,10 @@ public sealed class StockMovementService
             request.Reason,
             request.CorrelationId);
 
+        var delta = request.Type == Domain.Enums.StockMovementType.In ? request.Quantity : -request.Quantity;
+        product.AdjustQuantity(delta);
+        await _productRepository.UpdateAsync(product, cancellationToken);
+
         var stored = await _repository.AddAsync(movement, cancellationToken);
         return StockMovementDto.FromEntity(stored);
     }

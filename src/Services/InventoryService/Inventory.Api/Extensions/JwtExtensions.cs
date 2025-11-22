@@ -11,8 +11,30 @@ internal static class JwtExtensions
     {
         var authority = configuration["Jwt:Authority"];
         
-        var httpClient = new HttpClient();
-        var jwksJson = await httpClient.GetStringAsync($"{authority}/.well-known/jwks.json");
+        var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        var maxRetries = 5;
+        var delay = TimeSpan.FromSeconds(2);
+        string? jwksJson = null;
+
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                jwksJson = await httpClient.GetStringAsync($"{authority}/.well-known/jwks.json");
+                break;
+            }
+            catch (HttpRequestException) when (attempt < maxRetries)
+            {
+                Console.WriteLine($"⚠️  Tentativa {attempt}/{maxRetries}: Auth Service não disponível, tentando novamente em {delay.TotalSeconds}s...");
+                await Task.Delay(delay);
+            }
+        }
+
+        if (jwksJson == null)
+        {
+            throw new InvalidOperationException($"Não foi possível obter JWKS do Auth Service após {maxRetries} tentativas. Verifique se o Auth Service está rodando em {authority}");
+        }
+
         var jwks = new JsonWebKeySet(jwksJson);
 
         services

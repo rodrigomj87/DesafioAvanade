@@ -36,7 +36,46 @@ public sealed class RabbitMqPublisher : IRabbitMqPublisher, IDisposable
             DispatchConsumersAsync = true
         };
 
-        _connection = factory.CreateConnection();
+        var maxRetries = 5;
+        var delay = TimeSpan.FromSeconds(2);
+        IConnection? connection = null;
+
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                connection = factory.CreateConnection();
+                break;
+            }
+            catch (Exception ex) when (attempt < maxRetries)
+            {
+                _logger.LogWarning(
+                    "⚠️  Tentativa {Attempt}/{MaxRetries}: Não foi possível conectar ao RabbitMQ, tentando novamente em {Delay}s... (Host: {Host}:{Port})",
+                    attempt,
+                    maxRetries,
+                    delay.TotalSeconds,
+                    _settings.Host,
+                    _settings.Port);
+                Thread.Sleep(delay);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "❌ Falha ao conectar ao RabbitMQ após {MaxRetries} tentativas. Host: {Host}:{Port}",
+                    maxRetries,
+                    _settings.Host,
+                    _settings.Port);
+                throw;
+            }
+        }
+
+        if (connection == null)
+        {
+            throw new InvalidOperationException($"Não foi possível conectar ao RabbitMQ após {maxRetries} tentativas. Verifique se o RabbitMQ está rodando em {_settings.Host}:{_settings.Port}");
+        }
+
+        _connection = connection;
         _channel = _connection.CreateModel();
 
         _channel.ExchangeDeclare(

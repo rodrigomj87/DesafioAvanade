@@ -27,6 +27,13 @@ public sealed class EfProductRepository : IProductRepository
         return product;
     }
 
+    public async Task<Product> UpdateAsync(Product product, CancellationToken cancellationToken = default)
+    {
+        _context.Products.Update(product);
+        await _context.SaveChangesAsync(cancellationToken);
+        return product;
+    }
+
     public async Task<Product?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var product = await _context.Products

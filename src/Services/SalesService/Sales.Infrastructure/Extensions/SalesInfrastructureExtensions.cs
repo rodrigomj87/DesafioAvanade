@@ -32,11 +32,14 @@ public static class SalesInfrastructureExtensions
         var inventoryServiceUrl = configuration["Services:Inventory"]
             ?? throw new InvalidOperationException("Configuration 'Services:Inventory' not found");
 
+        services.AddTransient<Sales.Infrastructure.Http.AuthTokenDelegatingHandler>();
+
         services.AddHttpClient<IStockChecker, StockCheckerService>(client =>
         {
             client.BaseAddress = new Uri(inventoryServiceUrl);
             client.Timeout = TimeSpan.FromSeconds(2);
-        });
+        })
+        .AddHttpMessageHandler<Sales.Infrastructure.Http.AuthTokenDelegatingHandler>();
 
         return services;
     }

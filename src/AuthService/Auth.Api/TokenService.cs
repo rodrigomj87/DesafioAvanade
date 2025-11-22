@@ -99,6 +99,7 @@ public sealed class TokenService
             foreach (var role in roles.Where(r => !string.IsNullOrWhiteSpace(r)))
             {
                 claims.Add(new Claim("roles", role));
+                claims.Add(new Claim("permissions", role));
             }
         }
 

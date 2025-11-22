@@ -1,8 +1,6 @@
 using Inventory.Domain.Repositories;
-using Inventory.Infrastructure.Messaging;
 using Inventory.Infrastructure.Persistence;
 using Inventory.Infrastructure.Repositories;
-using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
@@ -21,37 +19,19 @@ public static class InventoryInfrastructureServiceCollectionExtensions
         services.AddScoped<IProductRepository, EfProductRepository>();
         services.AddScoped<IStockMovementRepository, EfStockMovementRepository>();
 
-        services.AddSingleton<Inventory.Infrastructure.Resilience.ResilientConsumerPolicy>();
-
-        services.AddMassTransit(x =>
+        var rabbitMqConfig = configuration.GetSection("RabbitMq");
+        services.AddSingleton(new Inventory.Infrastructure.Messaging.RabbitMqConsumerSettings
         {
-            x.AddConsumer<OrderConfirmedConsumer>();
-
-            x.UsingRabbitMq((context, cfg) =>
-            {
-                var rabbitMqConfig = configuration.GetSection("RabbitMq");
-                cfg.Host(rabbitMqConfig["Host"] ?? "localhost", h =>
-                {
-                    h.Username(rabbitMqConfig["Username"] ?? "guest");
-                    h.Password(rabbitMqConfig["Password"] ?? "guest");
-                });
-
-                cfg.ReceiveEndpoint("inventory.order-confirmed", e =>
-                {
-                    e.ConfigureConsumer<OrderConfirmedConsumer>(context);
-
-                    e.UseMessageRetry(r => r.Exponential(3, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(2)));
-
-                    e.Bind("sales.events", s =>
-                    {
-                        s.RoutingKey = "order.confirmed";
-                        s.ExchangeType = "topic";
-                    });
-                });
-
-                cfg.ConfigureEndpoints(context);
-            });
+            Host = rabbitMqConfig["Host"] ?? "localhost",
+            Port = int.Parse(rabbitMqConfig["Port"] ?? "5672"),
+            Username = rabbitMqConfig["Username"] ?? "guest",
+            Password = rabbitMqConfig["Password"] ?? "guest",
+            QueueName = rabbitMqConfig["QueueName"] ?? "inventory.stock-update",
+            ExchangeName = rabbitMqConfig["ExchangeName"] ?? "sales.events",
+            ExchangeType = rabbitMqConfig["ExchangeType"] ?? "topic",
+            RoutingKey = rabbitMqConfig["RoutingKey"] ?? "order.confirmed"
         });
+        services.AddHostedService<Inventory.Infrastructure.Messaging.RabbitMqConsumer>();
 
         return services;
     }

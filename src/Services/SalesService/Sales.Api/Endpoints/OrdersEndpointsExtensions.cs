@@ -15,22 +15,22 @@ public static class OrdersEndpointsExtensions
         group.MapPost("/", CreateOrderAsync)
             .WithName("CreateOrder")
             .WithSummary("Create a new order")
-            .RequireAuthorization("sales.write");
+            .RequireAuthorization();
 
         group.MapGet("/", GetOrdersAsync)
             .WithName("GetOrders")
             .WithSummary("Get all orders with pagination and filters")
-            .RequireAuthorization("sales.read");
+            .RequireAuthorization();
 
         group.MapGet("/{id:guid}", GetOrderByIdAsync)
             .WithName("GetOrderById")
             .WithSummary("Get order by ID")
-            .RequireAuthorization("sales.read");
+            .RequireAuthorization();
 
         group.MapPatch("/{id:guid}/status", UpdateOrderStatusAsync)
             .WithName("UpdateOrderStatus")
             .WithSummary("Update order status")
-            .RequireAuthorization("sales.write");
+            .RequireAuthorization();
 
         return group;
     }
