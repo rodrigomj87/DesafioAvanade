@@ -81,7 +81,6 @@ public static class WebApplicationExtensions
     public static IEndpointConventionBuilder MapGatewayReverseProxy(this WebApplication app)
     {
         return app.MapReverseProxy()
-            .RequireAuthorization()
             .RequireRateLimiting("gateway-default");
     }
 }

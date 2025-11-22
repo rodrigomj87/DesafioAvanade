@@ -17,8 +17,25 @@ internal sealed class GatewayProxyConfigProvider(IConfiguration configuration) :
         {
             new RouteConfig
             {
+                RouteId = "inventory-health-route",
+                ClusterId = "inventory-cluster",
+                Order = 0,
+                AuthorizationPolicy = "AllowAnonymous",
+                Match = new RouteMatch { Path = "/inventory/health" },
+                Transforms = new[]
+                {
+                    new Dictionary<string, string>
+                    {
+                        ["PathPattern"] = "/api/v1/inventory/health"
+                    }
+                }
+            },
+            new RouteConfig
+            {
                 RouteId = "inventory-route",
                 ClusterId = "inventory-cluster",
+                Order = 1,
+                AuthorizationPolicy = "GatewayAuthenticated",
                 Match = new RouteMatch { Path = "/inventory/{**catch-all}" },
                 Transforms = new[]
                 {
@@ -30,14 +47,31 @@ internal sealed class GatewayProxyConfigProvider(IConfiguration configuration) :
             },
             new RouteConfig
             {
+                RouteId = "sales-health-route",
+                ClusterId = "sales-cluster",
+                Order = 0,
+                AuthorizationPolicy = "AllowAnonymous",
+                Match = new RouteMatch { Path = "/sales/health" },
+                Transforms = new[]
+                {
+                    new Dictionary<string, string>
+                    {
+                        ["PathPattern"] = "/health"
+                    }
+                }
+            },
+            new RouteConfig
+            {
                 RouteId = "sales-route",
                 ClusterId = "sales-cluster",
+                Order = 1,
+                AuthorizationPolicy = "GatewayAuthenticated",
                 Match = new RouteMatch { Path = "/sales/{**catch-all}" },
                 Transforms = new[]
                 {
                     new Dictionary<string, string>
                     {
-                        ["PathRemovePrefix"] = "/sales"
+                        ["PathPattern"] = "/api/v1/sales/{**catch-all}"
                     }
                 }
             }

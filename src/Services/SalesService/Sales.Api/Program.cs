@@ -7,14 +7,10 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.ConfigureSalesLogging();
 builder.Services.AddSalesObservability(builder.Configuration);
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddSalesInfrastructure(builder.Configuration);
+builder.Services.AddRabbitMqPublisher(builder.Configuration);
 await builder.Services.AddSalesJwtAuthenticationAsync(builder.Configuration);
-
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("sales.read", policy => policy.RequireClaim("permissions", "sales.read"));
-    options.AddPolicy("sales.write", policy => policy.RequireClaim("permissions", "sales.write"));
-});
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();

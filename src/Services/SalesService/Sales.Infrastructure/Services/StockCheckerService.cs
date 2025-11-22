@@ -30,7 +30,7 @@ public sealed class StockCheckerService : IStockChecker
 
             response.EnsureSuccessStatusCode();
 
-            var product = await response.Content.ReadFromJsonAsync<ProductDto>(cancellationToken);
+            var product = await response.Content.ReadFromJsonAsync<InventoryProductDto>(cancellationToken);
 
             if (product is null)
             {
@@ -38,17 +38,17 @@ public sealed class StockCheckerService : IStockChecker
                 return new StockCheckResult(productId, false, 0, "Failed to retrieve product data");
             }
 
-            var isAvailable = product.Quantity >= quantity;
+            var isAvailable = product.QuantityAvailable >= quantity;
 
             _logger.LogInformation(
                 "Stock check for {ProductId}: requested {RequestedQuantity}, available {AvailableQuantity}, result: {IsAvailable}",
-                productId, quantity, product.Quantity, isAvailable);
+                productId, quantity, product.QuantityAvailable, isAvailable);
 
             return new StockCheckResult(
                 productId,
                 isAvailable,
-                product.Quantity,
-                isAvailable ? null : $"Insufficient stock. Available: {product.Quantity}, Requested: {quantity}");
+                product.QuantityAvailable,
+                isAvailable ? null : $"Insufficient stock. Available: {product.QuantityAvailable}, Requested: {quantity}");
         }
         catch (HttpRequestException ex)
         {
@@ -74,5 +74,5 @@ public sealed class StockCheckerService : IStockChecker
         return results.ToDictionary(r => r.ProductId, r => r);
     }
 
-    private sealed record ProductDto(Guid Id, string Sku, string Name, int Quantity, string Status);
+    private sealed record InventoryProductDto(Guid Id, string Sku, string Name, string Description, decimal Price, int QuantityAvailable);
 }

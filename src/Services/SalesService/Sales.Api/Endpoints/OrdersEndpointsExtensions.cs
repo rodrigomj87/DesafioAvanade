@@ -9,28 +9,28 @@ public static class OrdersEndpointsExtensions
 {
     public static RouteGroupBuilder MapOrdersEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/api/v1/orders")
+        var group = app.MapGroup("/api/v1/sales/orders")
             .WithTags("Orders");
 
         group.MapPost("/", CreateOrderAsync)
             .WithName("CreateOrder")
             .WithSummary("Create a new order")
-            .RequireAuthorization("sales.write");
+            .RequireAuthorization();
 
         group.MapGet("/", GetOrdersAsync)
             .WithName("GetOrders")
             .WithSummary("Get all orders with pagination and filters")
-            .RequireAuthorization("sales.read");
+            .RequireAuthorization();
 
         group.MapGet("/{id:guid}", GetOrderByIdAsync)
             .WithName("GetOrderById")
             .WithSummary("Get order by ID")
-            .RequireAuthorization("sales.read");
+            .RequireAuthorization();
 
         group.MapPatch("/{id:guid}/status", UpdateOrderStatusAsync)
             .WithName("UpdateOrderStatus")
             .WithSummary("Update order status")
-            .RequireAuthorization("sales.write");
+            .RequireAuthorization();
 
         return group;
     }
@@ -41,7 +41,7 @@ public static class OrdersEndpointsExtensions
         CancellationToken cancellationToken)
     {
         var response = await orderService.CreateOrderAsync(dto, cancellationToken);
-        return TypedResults.Created($"/api/v1/orders/{response.Id}", response);
+        return TypedResults.Created($"/api/v1/sales/orders/{response.Id}", response);
     }
 
     private static async Task<Ok<PagedResult<OrderResponse>>> GetOrdersAsync(

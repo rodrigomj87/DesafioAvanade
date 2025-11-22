@@ -55,6 +55,17 @@ app.MapGet("/api/v1/inventory/products", async (
     .WithName("ListProducts")
     .RequireAuthorization();
 
+app.MapGet("/api/v1/inventory/products/{id:guid}", async (
+    Guid id,
+    ProductService service,
+    CancellationToken ct) =>
+{
+    var product = await service.GetByIdAsync(id, ct);
+    return product is not null ? Results.Ok(product) : Results.NotFound();
+})
+    .WithName("GetProductById")
+    .RequireAuthorization();
+
 app.MapPost("/api/v1/inventory/products", async (
     CreateProductDto request,
     ProductService service,
