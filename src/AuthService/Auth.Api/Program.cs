@@ -24,17 +24,19 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.MapPost("/api/v1/auth/token", (AuthRequest request, TokenService tokenService) =>
+app.MapPost("/api/v1/auth/token", async (AuthRequest request, TokenService tokenService, Auth.Api.Services.RefreshTokenService refreshTokenService) =>
 {
     var subject = string.IsNullOrWhiteSpace(request.Username) ? "anonymous" : request.Username;
     var requestedRoles = request.Roles?.Length > 0 ? request.Roles : new[] { "inventory.read" };
     var token = tokenService.CreateToken(subject, requestedRoles);
 
+    var refreshToken = await refreshTokenService.CreateRefreshTokenAsync(subject, request.DeviceId);
+
     var response = new AuthResponse(
         token.AccessToken,
         token.ExpiresIn,
         requestedRoles,
-        Convert.ToBase64String(Guid.NewGuid().ToByteArray())
+        refreshToken.Token
     );
 
     return Results.Ok(response);
@@ -59,7 +61,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "UP" }));
 
 app.Run();
 
-public record AuthRequest(string Username, string Password, string[]? Roles);
+public record AuthRequest(string Username, string Password, string[]? Roles, string? DeviceId);
 
 public record AuthResponse(string AccessToken, int ExpiresIn, string[] Roles, string RefreshToken);
 
