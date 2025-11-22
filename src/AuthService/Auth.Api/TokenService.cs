@@ -10,8 +10,8 @@ namespace Auth.Api;
 public sealed class TokenService
 {
     private readonly JwtSecurityTokenHandler _tokenHandler = new();
-    private readonly SigningCredentials _credentials;
-    private readonly JsonWebKey _publicJsonWebKey;
+    private readonly SigningCredentials _primaryCredentials;
+    private readonly List<JsonWebKey> _allPublicKeys;
     private readonly TimeSpan _tokenLifetime;
     private readonly string _issuer;
     private readonly string? _audience;
@@ -23,36 +23,64 @@ public sealed class TokenService
         _audience = settings.Audience;
         _tokenLifetime = TimeSpan.FromMinutes(settings.TokenLifetimeMinutes > 0 ? settings.TokenLifetimeMinutes : 60);
 
-        var keyId = settings.KeyId ?? "auth-stub";
-
-        var rsa = RSA.Create(2048);
-        
-        if (!string.IsNullOrWhiteSpace(settings.RsaKeyXml))
+        if (settings.RsaKeys is null || settings.RsaKeys.Count == 0)
         {
-            rsa.FromXmlString(settings.RsaKeyXml);
+            throw new InvalidOperationException("Auth:RsaKeys não configurado ou vazio. Configure pelo menos uma chave RSA.");
         }
 
-        var parameters = rsa.ExportParameters(true);
-
-        var signingKey = new RsaSecurityKey(parameters)
+        var primaryKey = settings.RsaKeys.FirstOrDefault(k => k.IsPrimary);
+        if (primaryKey is null)
         {
-            KeyId = keyId
-        };
+            throw new InvalidOperationException("Nenhuma chave RSA marcada como IsPrimary=true. Defina uma chave primária.");
+        }
 
-        _credentials = new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256);
+        _allPublicKeys = new List<JsonWebKey>();
+        SigningCredentials? primaryCreds = null;
 
-        var publicParameters = new RSAParameters
+        foreach (var keyConfig in settings.RsaKeys)
         {
-            Modulus = parameters.Modulus,
-            Exponent = parameters.Exponent
-        };
+            if (string.IsNullOrWhiteSpace(keyConfig.KeyId))
+            {
+                throw new InvalidOperationException("KeyId não pode ser vazio em Auth:RsaKeys.");
+            }
 
-        var publicKey = new RsaSecurityKey(publicParameters)
-        {
-            KeyId = keyId
-        };
+            if (string.IsNullOrWhiteSpace(keyConfig.RsaKeyXml))
+            {
+                throw new InvalidOperationException($"RsaKeyXml não pode ser vazio para KeyId={keyConfig.KeyId}.");
+            }
 
-        _publicJsonWebKey = JsonWebKeyConverter.ConvertFromRSASecurityKey(publicKey);
+            var rsa = RSA.Create(2048);
+            rsa.FromXmlString(keyConfig.RsaKeyXml);
+
+            var parameters = rsa.ExportParameters(true);
+
+            if (keyConfig.IsPrimary)
+            {
+                var signingKey = new RsaSecurityKey(parameters)
+                {
+                    KeyId = keyConfig.KeyId
+                };
+                primaryCreds = new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256);
+            }
+
+            var publicParameters = new RSAParameters
+            {
+                Modulus = parameters.Modulus,
+                Exponent = parameters.Exponent
+            };
+
+            var publicKey = new RsaSecurityKey(publicParameters)
+            {
+                KeyId = keyConfig.KeyId
+            };
+
+            var jwk = JsonWebKeyConverter.ConvertFromRSASecurityKey(publicKey);
+            _allPublicKeys.Add(jwk);
+
+            rsa.Dispose();
+        }
+
+        _primaryCredentials = primaryCreds ?? throw new InvalidOperationException("Falha ao configurar SigningCredentials para chave primária.");
     }
 
     public AuthTokenResult CreateToken(string subject, IEnumerable<string>? roles = null)
@@ -81,14 +109,14 @@ public sealed class TokenService
             Subject = new ClaimsIdentity(claims),
             NotBefore = now.UtcDateTime,
             Expires = expires.UtcDateTime,
-            SigningCredentials = _credentials
+            SigningCredentials = _primaryCredentials
         };
 
         var jwt = _tokenHandler.CreateEncodedJwt(descriptor);
         return new AuthTokenResult(jwt, (int)_tokenLifetime.TotalSeconds, roles?.Where(r => !string.IsNullOrWhiteSpace(r)).ToArray() ?? Array.Empty<string>());
     }
 
-    public object GetJwksDocument() => new { keys = new[] { _publicJsonWebKey } };
+    public object GetJwksDocument() => new { keys = _allPublicKeys };
 }
 
 public sealed record AuthTokenResult(string AccessToken, int ExpiresIn, IReadOnlyCollection<string> Roles);
