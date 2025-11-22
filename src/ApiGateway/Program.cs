@@ -10,7 +10,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
 
 builder.Services
-    .AddGatewayObservability(builder.Environment.ApplicationName)
+    .AddGatewayObservability(builder.Configuration, builder.Environment.ApplicationName)
     .AddGatewayAuthentication(builder.Configuration)
     .AddGatewayRateLimiting(builder.Configuration)
     .AddGatewayReverseProxy();

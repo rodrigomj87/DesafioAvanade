@@ -1,9 +1,12 @@
+using Microsoft.Extensions.Configuration;
+using OpenTelemetry.Exporter;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Inventory.Infrastructure.Observability;
 using Serilog;
 using Serilog.Formatting.Json;
+using System;
 
 namespace Inventory.Api.Extensions;
 
@@ -33,17 +36,23 @@ internal static class ObservabilityExtensions
         services.AddOpenTelemetry()
             .ConfigureResource(resource => resource
                 .AddService(serviceName: serviceName, serviceVersion: serviceVersion))
-            .WithTracing(tracing => tracing
-                .AddSource(InventoryTelemetry.ActivitySourceName)
-                .AddAspNetCoreInstrumentation()
-                .AddHttpClientInstrumentation()
-                .AddConsoleExporter())
-            .WithMetrics(metrics => metrics
-                .AddMeter(InventoryTelemetry.MeterName)
-                .AddAspNetCoreInstrumentation()
-                .AddHttpClientInstrumentation()
-                .AddRuntimeInstrumentation()
-                .AddConsoleExporter());
+            .WithTracing(tracing =>
+            {
+                tracing
+                    .AddSource(InventoryTelemetry.ActivitySourceName)
+                    .AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation()
+                    .AddOtlpExporter(options => ConfigureOtlpExporter(configuration, options));
+            })
+            .WithMetrics(metrics =>
+            {
+                metrics
+                    .AddMeter(InventoryTelemetry.MeterName)
+                    .AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation()
+                    .AddRuntimeInstrumentation()
+                    .AddOtlpExporter(options => ConfigureOtlpExporter(configuration, options));
+            });
 
         return services;
     }
@@ -67,5 +76,33 @@ internal static class ObservabilityExtensions
         });
 
         return app;
+    }
+
+    private static void ConfigureOtlpExporter(IConfiguration configuration, OtlpExporterOptions options)
+    {
+        var otlpSection = configuration.GetSection("OpenTelemetry:Otlp");
+
+        if (otlpSection.Exists())
+        {
+            var endpoint = otlpSection.GetValue<string>("Endpoint");
+            if (!string.IsNullOrWhiteSpace(endpoint))
+            {
+                options.Endpoint = new Uri(endpoint);
+            }
+
+            var headers = otlpSection.GetValue<string>("Headers");
+            if (!string.IsNullOrWhiteSpace(headers))
+            {
+                options.Headers = headers;
+            }
+
+            var protocol = otlpSection.GetValue<string>("Protocol");
+            if (!string.IsNullOrWhiteSpace(protocol) && Enum.TryParse<OtlpExportProtocol>(protocol, true, out var parsedProtocol))
+            {
+                options.Protocol = parsedProtocol;
+            }
+        }
+
+        options.Endpoint ??= new Uri("http://localhost:4317");
     }
 }
