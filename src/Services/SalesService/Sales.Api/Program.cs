@@ -3,6 +3,7 @@ using Sales.Api.Handlers;
 using Sales.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
+AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
 var builder = WebApplication.CreateBuilder(args);
 
 builder.ConfigureSalesLogging();

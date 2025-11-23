@@ -8,6 +8,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using OpenTelemetry.Exporter;
+using OpenTelemetry.Extensions.Hosting;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -20,19 +22,25 @@ namespace Microsoft.Extensions.DependencyInjection;
 
 internal static class GatewayServiceCollectionExtensions
 {
-    public static IServiceCollection AddGatewayObservability(this IServiceCollection services, string serviceName)
+    public static IServiceCollection AddGatewayObservability(this IServiceCollection services, IConfiguration configuration, string serviceName)
     {
-        services.AddOpenTelemetry()
+        var openTelemetryBuilder = services.AddOpenTelemetry()
             .ConfigureResource(resource => resource.AddService(serviceName))
-            .WithTracing(tracing => tracing
-                .AddAspNetCoreInstrumentation()
-                .AddHttpClientInstrumentation()
-                .AddConsoleExporter())
-            .WithMetrics(metrics => metrics
-                .AddAspNetCoreInstrumentation()
-                .AddHttpClientInstrumentation()
-                .AddRuntimeInstrumentation()
-                .AddConsoleExporter());
+            .WithTracing(tracing =>
+            {
+                tracing
+                    .AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation()
+                    .AddOtlpExporter(options => ConfigureOtlpExporterForTraces(configuration, options));
+            })
+            .WithMetrics(metrics =>
+            {
+                metrics
+                    .AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation()
+                    .AddRuntimeInstrumentation()
+                    .AddOtlpExporter(options => ConfigureOtlpExporterForMetrics(configuration, options));
+            });
 
         return services;
     }
@@ -114,5 +122,75 @@ internal static class GatewayServiceCollectionExtensions
         services.AddReverseProxy();
         services.AddSingleton<IProxyConfigProvider, GatewayProxyConfigProvider>();
         return services;
+    }
+
+    private static void ConfigureOtlpExporterForTraces(IConfiguration configuration, OtlpExporterOptions options)
+    {
+        ConfigureCommonOtlpOptions(configuration, options);
+
+        options.Protocol = options.Protocol == default ? OtlpExportProtocol.HttpProtobuf : options.Protocol;
+
+        if (options.Protocol == OtlpExportProtocol.HttpProtobuf)
+        {
+            var uri = options.Endpoint ?? new Uri("http://localhost:4318");
+            var path = uri.AbsolutePath?.TrimEnd('/') ?? string.Empty;
+            if (!path.EndsWith("/v1/traces", StringComparison.OrdinalIgnoreCase))
+            {
+                var builder = new UriBuilder(uri) { Path = (path + "/v1/traces").TrimStart('/') };
+                options.Endpoint = builder.Uri;
+            }
+        }
+        else
+        {
+            options.Endpoint ??= new Uri("http://localhost:4317");
+        }
+    }
+
+    private static void ConfigureOtlpExporterForMetrics(IConfiguration configuration, OtlpExporterOptions options)
+    {
+        ConfigureCommonOtlpOptions(configuration, options);
+
+        options.Protocol = options.Protocol == default ? OtlpExportProtocol.HttpProtobuf : options.Protocol;
+
+        if (options.Protocol == OtlpExportProtocol.HttpProtobuf)
+        {
+            var uri = options.Endpoint ?? new Uri("http://localhost:4318");
+            var path = uri.AbsolutePath?.TrimEnd('/') ?? string.Empty;
+            if (!path.EndsWith("/v1/metrics", StringComparison.OrdinalIgnoreCase))
+            {
+                var builder = new UriBuilder(uri) { Path = (path + "/v1/metrics").TrimStart('/') };
+                options.Endpoint = builder.Uri;
+            }
+        }
+        else
+        {
+            options.Endpoint ??= new Uri("http://localhost:4317");
+        }
+    }
+
+    private static void ConfigureCommonOtlpOptions(IConfiguration configuration, OtlpExporterOptions options)
+    {
+        var otlpSection = configuration.GetSection("OpenTelemetry:Otlp");
+
+        if (otlpSection.Exists())
+        {
+            var endpoint = otlpSection.GetValue<string>("Endpoint");
+            if (!string.IsNullOrWhiteSpace(endpoint))
+            {
+                options.Endpoint = new Uri(endpoint);
+            }
+
+            var headers = otlpSection.GetValue<string>("Headers");
+            if (!string.IsNullOrWhiteSpace(headers))
+            {
+                options.Headers = headers;
+            }
+
+            var protocol = otlpSection.GetValue<string>("Protocol");
+            if (!string.IsNullOrWhiteSpace(protocol) && Enum.TryParse<OtlpExportProtocol>(protocol, true, out var parsedProtocol))
+            {
+                options.Protocol = parsedProtocol;
+            }
+        }
     }
 }

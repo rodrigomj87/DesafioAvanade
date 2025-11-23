@@ -1,0 +1,28 @@
+groups:
+- name: dotnet-recording-rules
+  interval: 30s
+  rules:
+    - record: job:dotnet_process_memory_working_set:avg
+      expr: avg by (exported_job) (avg_over_time(dotnet_process_memory_working_set_bytes[1m]))
+
+    - record: job:dotnet_gc_collections:increase_1m
+      expr: sum by (exported_job) (increase(dotnet_gc_collections_total[1m]))
+
+    - record: job:http_server_request_duration_seconds:avg_1m
+      expr: |
+        (
+          sum by (exported_job) (rate(http_server_request_duration_seconds_sum[1m]))
+        )
+        /
+        (
+          sum by (exported_job) (rate(http_server_request_duration_seconds_count[1m]))
+        )
+
+    - record: job:http_server_request_rate:1m
+      expr: sum by (exported_job) (rate(http_server_request_duration_seconds_count[1m]))
+
+    - record: job:orders_created:rate1m
+      expr: sum by (exported_job) (rate(orders_created_total[1m]))
+
+    - record: job:orders_failed:rate1m
+      expr: sum by (exported_job) (rate(orders_failed_total[1m]))

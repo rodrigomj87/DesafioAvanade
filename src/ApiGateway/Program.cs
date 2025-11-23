@@ -1,6 +1,7 @@
 using ApiGateway.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 
+AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
 var builder = WebApplication.CreateBuilder(args);
 
 builder.ConfigureGatewayLogging();
@@ -10,7 +11,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
 
 builder.Services
-    .AddGatewayObservability(builder.Environment.ApplicationName)
+    .AddGatewayObservability(builder.Configuration, builder.Environment.ApplicationName)
     .AddGatewayAuthentication(builder.Configuration)
     .AddGatewayRateLimiting(builder.Configuration)
     .AddGatewayReverseProxy();
