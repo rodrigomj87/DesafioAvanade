@@ -122,10 +122,15 @@ Invoke-RestMethod -Method Get -Uri "http://localhost:5152/inventory/products?pag
   }
   ```
   Ajuste `Endpoint`, `Headers` ou `Protocol` para apontar para collectors externos; para desativar temporariamente basta remover a seção ou usar variáveis `OTEL_EXPORTER_OTLP_*`.
-- O collector (arquivo `infra/dev/otel-collector-config.yaml`) envia traces para Jaeger e métricas para Prometheus, ambos consumidos pelo Grafana (dashboard a ser configurado). Para validar localmente:
+- O collector (arquivo `infra/dev/otel-collector-config.yaml`) envia traces para Jaeger e métricas para Prometheus, ambos consumidos pelo Grafana com dashboard pré-provisionado (`Collector + .NET Overview`). Para validar localmente:
   1. Gere tráfego (ex.: `Docs/demo/e2e-test.ps1`).
-  2. Consulte Jaeger em `http://localhost:16686` (service `SalesService`, `InventoryService` ou `ApiGateway`).
-  3. Abra Grafana `http://localhost:3000`, adicione data source Prometheus (`http://prometheus:9090`) e crie dashboards com métricas `sales.events.orders_created_total`, `inventory.events.event_processing_duration` etc.
+  2. Consulte Jaeger em `http://localhost:16686` (procure serviços `SalesService`, `InventoryService` ou `ApiGateway`).
+  3. Abra Grafana `http://localhost:3000` (admin/admin). O datasource Prometheus e o dashboard `Collector + .NET Overview` já são provisionados automaticamente pela configuração em `infra/dev/grafana/provisioning`.
+  - Caso não apareça imediatamente, force a recriação do container Grafana:
+```powershell
+docker compose -f infra/dev/docker-compose.yml up -d --no-deps --force-recreate grafana
+```
+  - O dashboard contém painéis de memória, GC, taxa de requisições e métricas customizadas (ex.: `orders_created_total`).
 - Rate limiting: por padrão são permitidas 30 requisições a cada 10 segundos por cliente (IP). Configure via `appsettings*` na seção `RateLimiting` ou via env vars (`RateLimiting__PermitLimit`, `RateLimiting__WindowSeconds`, `RateLimiting__QueueLimit`). Apenas as rotas proxy (`/inventory`, `/sales`) estão sujeitas ao limitador.
 
 ## Workflows

@@ -55,7 +55,7 @@
     {
       "type": "timeseries",
       "id": 2,
-      "title": "Memory (avg, 5m) by Service",
+      "title": "Memory (avg, 1m) by Service",
       "datasource": "Prometheus",
       "targets": [
         {
