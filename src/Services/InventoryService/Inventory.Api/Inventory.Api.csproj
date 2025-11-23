@@ -32,6 +32,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Inventory.Application\Inventory.Application.csproj" />
     <ProjectReference Include="..\Inventory.Infrastructure\Inventory.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Observability\Shared.Observability.csproj" />
   </ItemGroup>
 
 </Project>
