@@ -1,6 +1,7 @@
 using ApiGateway.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 
+AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
 var builder = WebApplication.CreateBuilder(args);
 
 builder.ConfigureGatewayLogging();

@@ -1,0 +1,148 @@
+{
+  "id": null,
+  "title": "Collector + .NET Overview",
+  "uid": "collector-dotnet-overview",
+  "schemaVersion": 30,
+  "version": 1,
+  "panels": [  
+    {
+      "type": "stat",
+      "id": 7,
+      "title": "$exported_job - Memory (current)",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "job:dotnet_process_memory_working_set:avg{exported_job=\"$exported_job\"}",
+          "format": "time_series",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+      "repeat": "exported_job",
+      "repeatDirection": "h",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 2,
+          "min": 0
+        }
+      },
+      "options": {
+        "gauge": {
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "min": 0,
+          "max": null
+        },
+        "reduceOptions": {
+          "calcs": ["last"],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "vertical",
+        "displayMode": "lcd"
+      },
+      "thresholds": {
+        "mode": "absolute",
+        "steps": [
+          {"color": "#299c46", "value": null},
+          {"color": "#f2c96d", "value": 500000000},
+          {"color": "#d44a3a", "value": 1000000000}
+        ]
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 2,
+      "title": "Memory (avg, 5m) by Service",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "job:dotnet_process_memory_working_set:avg",
+          "legendFormat": "{{exported_job}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 4}
+    },
+    {
+      "type": "timeseries",
+      "id": 3,
+      "title": "GC Collections (increase 1m) by Service",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "job:dotnet_gc_collections:increase_1m",
+          "legendFormat": "{{exported_job}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 4}
+    },
+    {
+      "type": "timeseries",
+      "id": 4,
+      "title": "Requests/sec (1m) by Service",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "job:http_server_request_rate:1m",
+          "legendFormat": "{{exported_job}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 10}
+    },
+    {
+      "type": "timeseries",
+      "id": 5,
+      "title": "Avg Request Duration (1m) by Service",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "job:http_server_request_duration_seconds:avg_1m",
+          "legendFormat": "{{exported_job}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 10}
+    },
+    {
+      "type": "timeseries",
+      "id": 6,
+      "title": "Orders Created / Failed (rate 1m)",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "job:orders_created:rate1m",
+          "legendFormat": "created {{exported_job}}",
+          "refId": "A"
+        },
+        {
+          "expr": "job:orders_failed:rate1m",
+          "legendFormat": "failed {{exported_job}}",
+          "refId": "B"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 16}
+    }
+    
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "exported_job",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(job:dotnet_process_memory_working_set:avg, exported_job)",
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true
+      }
+    ]
+  },
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {"from": "now-1h", "to": "now"}
+}

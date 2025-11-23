@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using OpenTelemetry.Exporter;
+using OpenTelemetry.Extensions.Hosting;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -33,7 +34,7 @@ internal static class ObservabilityExtensions
         var serviceName = configuration.GetValue<string>("ServiceName") ?? "InventoryService";
         var serviceVersion = configuration.GetValue<string>("ServiceVersion") ?? "1.0.0";
 
-        services.AddOpenTelemetry()
+        var openTelemetryBuilder = services.AddOpenTelemetry()
             .ConfigureResource(resource => resource
                 .AddService(serviceName: serviceName, serviceVersion: serviceVersion))
             .WithTracing(tracing =>
@@ -42,7 +43,7 @@ internal static class ObservabilityExtensions
                     .AddSource(InventoryTelemetry.ActivitySourceName)
                     .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
-                    .AddOtlpExporter(options => ConfigureOtlpExporter(configuration, options));
+                    .AddOtlpExporter(options => ConfigureOtlpExporterForTraces(configuration, options));
             })
             .WithMetrics(metrics =>
             {
@@ -51,7 +52,7 @@ internal static class ObservabilityExtensions
                     .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
-                    .AddOtlpExporter(options => ConfigureOtlpExporter(configuration, options));
+                    .AddOtlpExporter(options => ConfigureOtlpExporterForMetrics(configuration, options));
             });
 
         return services;
@@ -78,7 +79,51 @@ internal static class ObservabilityExtensions
         return app;
     }
 
-    private static void ConfigureOtlpExporter(IConfiguration configuration, OtlpExporterOptions options)
+    private static void ConfigureOtlpExporterForTraces(IConfiguration configuration, OtlpExporterOptions options)
+    {
+        ConfigureCommonOtlpOptions(configuration, options);
+
+        options.Protocol = options.Protocol == default ? OtlpExportProtocol.HttpProtobuf : options.Protocol;
+
+        if (options.Protocol == OtlpExportProtocol.HttpProtobuf)
+        {
+            var uri = options.Endpoint ?? new Uri("http://localhost:4318");
+            var path = uri.AbsolutePath?.TrimEnd('/') ?? string.Empty;
+            if (!path.EndsWith("/v1/traces", StringComparison.OrdinalIgnoreCase))
+            {
+                var builder = new UriBuilder(uri) { Path = (path + "/v1/traces").TrimStart('/') };
+                options.Endpoint = builder.Uri;
+            }
+        }
+        else
+        {
+            options.Endpoint ??= new Uri("http://localhost:4317");
+        }
+    }
+
+    private static void ConfigureOtlpExporterForMetrics(IConfiguration configuration, OtlpExporterOptions options)
+    {
+        ConfigureCommonOtlpOptions(configuration, options);
+
+        options.Protocol = options.Protocol == default ? OtlpExportProtocol.HttpProtobuf : options.Protocol;
+
+        if (options.Protocol == OtlpExportProtocol.HttpProtobuf)
+        {
+            var uri = options.Endpoint ?? new Uri("http://localhost:4318");
+            var path = uri.AbsolutePath?.TrimEnd('/') ?? string.Empty;
+            if (!path.EndsWith("/v1/metrics", StringComparison.OrdinalIgnoreCase))
+            {
+                var builder = new UriBuilder(uri) { Path = (path + "/v1/metrics").TrimStart('/') };
+                options.Endpoint = builder.Uri;
+            }
+        }
+        else
+        {
+            options.Endpoint ??= new Uri("http://localhost:4317");
+        }
+    }
+
+    private static void ConfigureCommonOtlpOptions(IConfiguration configuration, OtlpExporterOptions options)
     {
         var otlpSection = configuration.GetSection("OpenTelemetry:Otlp");
 
@@ -102,7 +147,5 @@ internal static class ObservabilityExtensions
                 options.Protocol = parsedProtocol;
             }
         }
-
-        options.Endpoint ??= new Uri("http://localhost:4317");
     }
 }

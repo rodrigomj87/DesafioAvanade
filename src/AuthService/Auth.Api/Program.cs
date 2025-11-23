@@ -2,6 +2,7 @@ using Auth.Api;
 using Auth.Api.Data;
 using Microsoft.EntityFrameworkCore;
 
+AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
 var builder = WebApplication.CreateBuilder(args);
 
 var connectionString = builder.Configuration.GetConnectionString("AuthDatabase")
