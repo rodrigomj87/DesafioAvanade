@@ -1,8 +1,12 @@
 using System.Diagnostics;
 using System.Text;
+using System.Linq;
 using System.Text.Json;
 using Inventory.Application.Services;
 using Inventory.Domain.Enums;
+using Inventory.Domain.Entities;
+using Inventory.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Inventory.Infrastructure.Observability;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -10,6 +14,7 @@ using Microsoft.Extensions.Logging;
 using OpenTelemetry.Context.Propagation;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using Serilog.Context;
 
 namespace Inventory.Infrastructure.Messaging;
 
@@ -107,6 +112,26 @@ public sealed class RabbitMqConsumer : BackgroundService
         {
             var propagationContext = ExtractPropagationContext(ea.BasicProperties);
             var correlationId = GetHeaderValue(ea.BasicProperties, "x-correlation-id") ?? Guid.NewGuid().ToString();
+
+            using (LogContext.PushProperty("CorrelationId", correlationId))
+            {
+
+            try
+            {
+                var headersDict = ea.BasicProperties?.Headers?.ToDictionary(kv => kv.Key, kv =>
+                    kv.Value switch
+                    {
+                        byte[] b => Encoding.UTF8.GetString(b),
+                        string s => s,
+                        _ => kv.Value?.ToString() ?? string.Empty
+                    }) ?? new Dictionary<string, string>();
+
+                _logger.LogInformation("[DEBUG] RabbitMQ received headers: {Headers}", System.Text.Json.JsonSerializer.Serialize(headersDict));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[WARN] Falha ao serializar headers do RabbitMQ para debug");
+            }
             Activity? activity = null;
             OrderConfirmedEvent? orderEvent = null;
             try
@@ -146,11 +171,53 @@ public sealed class RabbitMqConsumer : BackgroundService
 
                 using var scope = _serviceProvider.CreateScope();
                 var stockMovementService = scope.ServiceProvider.GetRequiredService<StockMovementService>();
+                var dbContext = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
+                var productRepository = scope.ServiceProvider.GetRequiredService<Inventory.Domain.Repositories.IProductRepository>();
+
+                var messageId = ea.BasicProperties?.MessageId ?? Guid.NewGuid().ToString();
+
+                // idempotency: skip if already processed
+                var alreadyProcessed = await dbContext.ProcessedMessages
+                    .AnyAsync(pm => pm.MessageId == messageId, stoppingToken);
+
+                if (alreadyProcessed)
+                {
+                    _logger.LogInformation("Mensagem já processada (idempotência). MessageId: {MessageId}", messageId);
+                    _channel.BasicAck(ea.DeliveryTag, false);
+                    return;
+                }
+
+                var failedItems = new List<FailedItemEvent>();
 
                 foreach (var item in orderEvent.Items)
                 {
                     try
                     {
+                        var product = await productRepository.GetByIdAsync(item.ProductId, stoppingToken);
+                        if (product is null)
+                        {
+                            failedItems.Add(new FailedItemEvent
+                            {
+                                ProductId = item.ProductId,
+                                RequestedQuantity = item.Quantity,
+                                AvailableQuantity = null,
+                                FailureReason = "Product not found"
+                            });
+                            continue;
+                        }
+
+                        if (product.QuantityAvailable < item.Quantity)
+                        {
+                            failedItems.Add(new FailedItemEvent
+                            {
+                                ProductId = item.ProductId,
+                                RequestedQuantity = item.Quantity,
+                                AvailableQuantity = product.QuantityAvailable,
+                                FailureReason = "Insufficient stock"
+                            });
+                            continue;
+                        }
+
                         await stockMovementService.RegisterAsync(new Inventory.Application.Contracts.RegisterStockMovementDto(
                             item.ProductId,
                             StockMovementType.Out,
@@ -182,6 +249,18 @@ public sealed class RabbitMqConsumer : BackgroundService
                     }
                 }
 
+                if (failedItems.Any())
+                {
+                    _logger.LogWarning("[WARN] Alguns itens falharam durante o processamento. Não será gravada entrada de idempotência.");
+                    _channel.BasicAck(ea.DeliveryTag, false);
+                    return;
+                }
+
+                // mark message as processed for idempotency
+                var processedMessage = new ProcessedMessage(messageId);
+                await dbContext.ProcessedMessages.AddAsync(processedMessage, stoppingToken);
+                await dbContext.SaveChangesAsync(stoppingToken);
+
                 _channel.BasicAck(ea.DeliveryTag, false);
                 if (orderEvent.CreatedAt != default)
                 {
@@ -211,6 +290,7 @@ public sealed class RabbitMqConsumer : BackgroundService
             finally
             {
                 activity?.Dispose();
+            }
             }
         };
 

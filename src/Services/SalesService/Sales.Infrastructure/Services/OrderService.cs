@@ -9,6 +9,7 @@ using Sales.Infrastructure.Messaging;
 using Microsoft.Extensions.Logging;
 using FluentValidation;
 using Sales.Infrastructure.Observability;
+using Serilog.Context;
 using Microsoft.AspNetCore.Http;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -104,14 +105,9 @@ public class OrderService : IOrderService
 
         var customerId = CustomerId.Create(dto.CustomerId);
         var order = Order.Create(customerId, orderItems);
-        var loggingScope = _logger.BeginScope(new Dictionary<string, object?>
-        {
-            ["CorrelationId"] = correlationId,
-            ["OrderId"] = order.Id,
-            ["CustomerId"] = dto.CustomerId
-        });
-
-        try
+        using (LogContext.PushProperty("CorrelationId", correlationId))
+        using (LogContext.PushProperty("OrderId", order.Id))
+        using (LogContext.PushProperty("CustomerId", dto.CustomerId))
         {
             await _orderRepository.AddAsync(order, cancellationToken);
 
@@ -154,10 +150,6 @@ public class OrderService : IOrderService
             {
                 _logger.LogError(ex, "Failed to publish order confirmed event for Order {OrderId}. CorrelationId: {CorrelationId}", order.Id, correlationId);
             }
-        }
-        finally
-        {
-            loggingScope?.Dispose();
         }
 
         return MapToOrderResponse(order);

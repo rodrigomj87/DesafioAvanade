@@ -6,6 +6,11 @@ using Inventory.Infrastructure.Messaging;
 using Inventory.Infrastructure.Persistence;
 using Inventory.Integration.Tests.Fixtures;
 using MassTransit;
+using Microsoft.Extensions.Hosting;
+using RabbitMQ.Client;
+using System.Text;
+using System.Text.Json;
+using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,6 +34,13 @@ public sealed class OrderConfirmedConsumerTests : IClassFixture<IntegrationTestF
         var services = new ServiceCollection();
         ConfigureServices(services);
         var provider = services.BuildServiceProvider();
+
+        // start hosted services (RabbitMqConsumer) so it can receive messages
+        var hostedServices = provider.GetServices<IHostedService>();
+        foreach (var hs in hostedServices)
+        {
+            await hs.StartAsync(CancellationToken.None);
+        }
 
         var dbContext = provider.GetRequiredService<InventoryDbContext>();
         var productRepo = provider.GetRequiredService<IProductRepository>();
@@ -58,11 +70,25 @@ public sealed class OrderConfirmedConsumerTests : IClassFixture<IntegrationTestF
             CreatedAt = DateTime.UtcNow
         };
 
-        var publishEndpoint = provider.GetRequiredService<IPublishEndpoint>();
-        await publishEndpoint.Publish(orderEvent, ctx =>
+        // publish directly to the exchange/routing key expected by the consumer
+        var config = provider.GetRequiredService<IConfiguration>();
+        var factory = new ConnectionFactory
         {
-            ctx.Headers.Set("x-correlation-id", Guid.NewGuid().ToString());
-        });
+            HostName = config["RabbitMq:Host"] ?? "localhost",
+            Port = int.Parse(config["RabbitMq:Port"] ?? "5672"),
+            UserName = config["RabbitMq:Username"] ?? "guest",
+            Password = config["RabbitMq:Password"] ?? "guest"
+        };
+
+        using (var connection = factory.CreateConnection())
+        using (var channel = connection.CreateModel())
+        {
+            var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(orderEvent));
+            var props = channel.CreateBasicProperties();
+            props.Persistent = true;
+            props.Headers = new Dictionary<string, object?> { { "x-correlation-id", Guid.NewGuid().ToString() } };
+            channel.BasicPublish(exchange: "sales.events", routingKey: "order.confirmed", basicProperties: props, body: body);
+        }
 
         await Task.Delay(3000);
 
@@ -77,6 +103,12 @@ public sealed class OrderConfirmedConsumerTests : IClassFixture<IntegrationTestF
         var services = new ServiceCollection();
         ConfigureServices(services);
         var provider = services.BuildServiceProvider();
+
+        var hostedServices = provider.GetServices<IHostedService>();
+        foreach (var hs in hostedServices)
+        {
+            await hs.StartAsync(CancellationToken.None);
+        }
 
         var dbContext = provider.GetRequiredService<InventoryDbContext>();
         var productRepo = provider.GetRequiredService<IProductRepository>();
@@ -107,21 +139,39 @@ public sealed class OrderConfirmedConsumerTests : IClassFixture<IntegrationTestF
             CreatedAt = DateTime.UtcNow
         };
 
-        var publishEndpoint = provider.GetRequiredService<IPublishEndpoint>();
-        
-        await publishEndpoint.Publish(orderEvent, ctx =>
+        var config = provider.GetRequiredService<IConfiguration>();
+        var factory = new ConnectionFactory
         {
-            ctx.MessageId = messageId;
-            ctx.Headers.Set("x-correlation-id", Guid.NewGuid().ToString());
-        });
+            HostName = config["RabbitMq:Host"] ?? "localhost",
+            Port = int.Parse(config["RabbitMq:Port"] ?? "5672"),
+            UserName = config["RabbitMq:Username"] ?? "guest",
+            Password = config["RabbitMq:Password"] ?? "guest"
+        };
+
+        using (var connection = factory.CreateConnection())
+        using (var channel = connection.CreateModel())
+        {
+            var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(orderEvent));
+            var props = channel.CreateBasicProperties();
+            props.Persistent = true;
+            props.MessageId = messageId.ToString();
+            props.Headers = new Dictionary<string, object?> { { "x-correlation-id", Guid.NewGuid().ToString() } };
+            channel.BasicPublish(exchange: "sales.events", routingKey: "order.confirmed", basicProperties: props, body: body);
+        }
 
         await Task.Delay(3000);
 
-        await publishEndpoint.Publish(orderEvent, ctx =>
+        // publish the same message a second time (same MessageId) to validate idempotency
+        using (var connection2 = factory.CreateConnection())
+        using (var channel2 = connection2.CreateModel())
         {
-            ctx.MessageId = messageId;
-            ctx.Headers.Set("x-correlation-id", Guid.NewGuid().ToString());
-        });
+            var body2 = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(orderEvent));
+            var props2 = channel2.CreateBasicProperties();
+            props2.Persistent = true;
+            props2.MessageId = messageId.ToString();
+            props2.Headers = new Dictionary<string, object?> { { "x-correlation-id", Guid.NewGuid().ToString() } };
+            channel2.BasicPublish(exchange: "sales.events", routingKey: "order.confirmed", basicProperties: props2, body: body2);
+        }
 
         await Task.Delay(3000);
 
@@ -141,6 +191,12 @@ public sealed class OrderConfirmedConsumerTests : IClassFixture<IntegrationTestF
         var services = new ServiceCollection();
         ConfigureServices(services);
         var provider = services.BuildServiceProvider();
+
+        var hostedServices = provider.GetServices<IHostedService>();
+        foreach (var hs in hostedServices)
+        {
+            await hs.StartAsync(CancellationToken.None);
+        }
 
         var dbContext = provider.GetRequiredService<InventoryDbContext>();
         var productRepo = provider.GetRequiredService<IProductRepository>();
@@ -170,11 +226,24 @@ public sealed class OrderConfirmedConsumerTests : IClassFixture<IntegrationTestF
             CreatedAt = DateTime.UtcNow
         };
 
-        var publishEndpoint = provider.GetRequiredService<IPublishEndpoint>();
-        await publishEndpoint.Publish(orderEvent, ctx =>
+        var config = provider.GetRequiredService<IConfiguration>();
+        var factory = new ConnectionFactory
         {
-            ctx.Headers.Set("x-correlation-id", Guid.NewGuid().ToString());
-        });
+            HostName = config["RabbitMq:Host"] ?? "localhost",
+            Port = int.Parse(config["RabbitMq:Port"] ?? "5672"),
+            UserName = config["RabbitMq:Username"] ?? "guest",
+            Password = config["RabbitMq:Password"] ?? "guest"
+        };
+
+        using (var connection = factory.CreateConnection())
+        using (var channel = connection.CreateModel())
+        {
+            var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(orderEvent));
+            var props = channel.CreateBasicProperties();
+            props.Persistent = true;
+            props.Headers = new Dictionary<string, object?> { { "x-correlation-id", Guid.NewGuid().ToString() } };
+            channel.BasicPublish(exchange: "sales.events", routingKey: "order.confirmed", basicProperties: props, body: body);
+        }
 
         await Task.Delay(3000);
 
@@ -190,6 +259,12 @@ public sealed class OrderConfirmedConsumerTests : IClassFixture<IntegrationTestF
         ConfigureServices(services);
         var provider = services.BuildServiceProvider();
 
+        var hostedServices = provider.GetServices<IHostedService>();
+        foreach (var hs in hostedServices)
+        {
+            await hs.StartAsync(CancellationToken.None);
+        }
+
         var nonExistentProductId = Guid.NewGuid();
 
         var orderEvent = new OrderConfirmedEvent
@@ -204,11 +279,24 @@ public sealed class OrderConfirmedConsumerTests : IClassFixture<IntegrationTestF
             CreatedAt = DateTime.UtcNow
         };
 
-        var publishEndpoint = provider.GetRequiredService<IPublishEndpoint>();
-        await publishEndpoint.Publish(orderEvent, ctx =>
+        var config = provider.GetRequiredService<IConfiguration>();
+        var factory = new ConnectionFactory
         {
-            ctx.Headers.Set("x-correlation-id", Guid.NewGuid().ToString());
-        });
+            HostName = config["RabbitMq:Host"] ?? "localhost",
+            Port = int.Parse(config["RabbitMq:Port"] ?? "5672"),
+            UserName = config["RabbitMq:Username"] ?? "guest",
+            Password = config["RabbitMq:Password"] ?? "guest"
+        };
+
+        using (var connection = factory.CreateConnection())
+        using (var channel = connection.CreateModel())
+        {
+            var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(orderEvent));
+            var props = channel.CreateBasicProperties();
+            props.Persistent = true;
+            props.Headers = new Dictionary<string, object?> { { "x-correlation-id", Guid.NewGuid().ToString() } };
+            channel.BasicPublish(exchange: "sales.events", routingKey: "order.confirmed", basicProperties: props, body: body);
+        }
 
         await Task.Delay(3000);
 
@@ -225,13 +313,36 @@ public sealed class OrderConfirmedConsumerTests : IClassFixture<IntegrationTestF
                 ["ConnectionStrings:InventoryDatabase"] = _fixture.SqlConnectionString,
                 ["RabbitMq:Host"] = "localhost",
                 ["RabbitMq:Port"] = _fixture.RabbitMqPort.ToString(),
-                ["RabbitMq:Username"] = "guest",
-                ["RabbitMq:Password"] = "guest"
+                ["RabbitMq:Username"] = "test",
+                ["RabbitMq:Password"] = "testpwd"
             })
             .Build();
 
         services.AddSingleton<IConfiguration>(configuration);
         services.AddLogging(builder => builder.AddConsole());
         services.AddInventoryInfrastructure(configuration);
+        // register application services (ProductService, StockMovementService, validators)
+        services.AddInventoryApplication();
+
+        // Register MassTransit so tests can publish to RabbitMQ using IPublishEndpoint
+        services.AddMassTransit(x =>
+        {
+            x.UsingRabbitMq((context, cfg) =>
+            {
+                var host = configuration["RabbitMq:Host"] ?? "localhost";
+                var port = int.Parse(configuration["RabbitMq:Port"] ?? "5672");
+                var username = configuration["RabbitMq:Username"] ?? "guest";
+                var password = configuration["RabbitMq:Password"] ?? "guest";
+
+                cfg.Host(new Uri($"rabbitmq://{host}:{port}/"), h =>
+                {
+                    h.Username(username);
+                    h.Password(password);
+                });
+            });
+        });
+
+        // Ensure IPublishEndpoint is resolvable from the test ServiceProvider
+        services.AddSingleton<IPublishEndpoint>(sp => sp.GetRequiredService<IBus>());
     }
 }
