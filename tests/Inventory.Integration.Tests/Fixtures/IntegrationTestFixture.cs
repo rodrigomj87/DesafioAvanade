@@ -20,14 +20,17 @@ public sealed class IntegrationTestFixture : IAsyncLifetime
         _sqlContainer = new MsSqlBuilder()
             .WithImage("mcr.microsoft.com/mssql/server:2022-latest")
             .WithPassword("YourStrong@Passw0rd")
-            .WithPortBinding(1434, 1433)
+            .WithExposedPort(1433)
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(1433))
             .Build();
 
         _rabbitMqContainer = new RabbitMqBuilder()
             .WithImage("rabbitmq:3.13-management")
-            .WithPortBinding(5673, 5672)
-            .WithPortBinding(15673, 15672)
+            // create a non-guest user to allow connections from host-mapped ports
+            .WithEnvironment("RABBITMQ_DEFAULT_USER", "test")
+            .WithEnvironment("RABBITMQ_DEFAULT_PASS", "testpwd")
+            .WithExposedPort(5672)
+            .WithExposedPort(15672)
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(5672))
             .Build();
 
